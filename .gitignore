@@ -40,4 +40,5 @@ Thumbs.db
 # Package lock (ixtiyoriy)
 package-lock.json
 
-bin/*.exe
+bin/
+*.exe
