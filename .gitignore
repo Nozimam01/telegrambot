@@ -1,0 +1,41 @@
+# Dependencies
+node_modules/
+
+# Environment
+.env
+
+# Downloads
+downloads/
+
+# Database
+database.sqlite
+
+# Sessions
+session.json
+users.json
+
+# Media files
+*.mp3
+*.mp4
+*.webm
+*.mkv
+*.part
+*.temp
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# VS Code
+.vscode/
+
+# Workspace
+*.code-workspace
+
+# Package lock (ixtiyoriy)
+package-lock.json
