@@ -427,6 +427,17 @@ bot.action("download_audio", async (ctx) => {
 
 });
 
+
+
+const { execSync } = require("child_process");
+
+try {
+    console.log("YT-DLP PATH:", execSync("which yt-dlp").toString());
+    console.log("YT-DLP VERSION:", execSync("yt-dlp --version").toString());
+} catch (e) {
+    console.error("YT-DLP NOT FOUND", e);
+}
+
 // ================= LAUNCH =================
 
 bot.launch({
