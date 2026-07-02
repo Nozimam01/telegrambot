@@ -92,7 +92,19 @@ function download(url, type = "video") {
         ? [...base, "-x", "--audio-format", "mp3", "-o", out, url]
         : [...base, "-f", "bv*+ba/b", "--merge-output-format", "mp4", "-o", out, url];
 
-    const proc = execFile("yt-dlp", args);
+    const proc = execFile("yt-dlp", [
+  "--no-update",
+  "--no-warnings",
+  "--newline",
+  "--restrict-filenames",
+  "-f",
+  "bv*+ba/b",
+  "--merge-output-format",
+  "mp4",
+  "-o",
+  out,
+  url
+]);
 
     proc.on("error", reject);
 
