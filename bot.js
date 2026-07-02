@@ -54,12 +54,9 @@ const LINK_REGEX =
 // ================= DOWNLOAD =================
 
 function download(url, type) {
-
     return new Promise((resolve, reject) => {
 
-        const base = Date.now();
-
-        const output = path.join(DOWNLOAD_DIR, `${base}.%(ext)s`);
+        const output = path.join(DOWNLOAD_DIR, "%(title)s.%(ext)s");
 
         const args =
             type === "audio"
@@ -69,6 +66,8 @@ function download(url, type) {
                       "mp3",
                       "--ffmpeg-location",
                       "/usr/bin",
+                      "--print",
+                      "after_move:filepath",
                       "-o",
                       output,
                       url
@@ -80,28 +79,45 @@ function download(url, type) {
                       "mp4",
                       "--ffmpeg-location",
                       "/usr/bin",
+                      "--print",
+                      "after_move:filepath",
                       "-o",
                       output,
                       url
                   ];
 
         execFile(
-    "/usr/local/bin/yt-dlp",
-    args,
-    (err, stdout, stderr) => {
-                const file = fs
-                    .readdirSync(DOWNLOAD_DIR)
-                    .find(f => f.startsWith(String(base)));
+            "/usr/local/bin/yt-dlp",
+            args,
+            (err, stdout, stderr) => {
 
-                if (!file)
+                console.log("========== YT-DLP ==========");
+                console.log("STDOUT:\n", stdout);
+                console.log("STDERR:\n", stderr);
+                console.log("============================");
+
+                if (err) {
+                    console.error(err);
+                    return reject(err);
+                }
+
+                const file = stdout
+                    .trim()
+                    .split("\n")
+                    .pop()
+                    .trim();
+
+                console.log("Downloaded file:", file);
+
+                if (!file || !fs.existsSync(file)) {
                     return reject(new Error("Downloaded file not found"));
+                }
 
-                resolve(path.join(DOWNLOAD_DIR, file));
+                resolve(file);
             }
         );
     });
 }
-
 // ================= SEARCH =================
 
 async function search(ctx, query, mode) {
