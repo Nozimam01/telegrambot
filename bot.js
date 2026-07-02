@@ -33,7 +33,7 @@ if (!fs.existsSync(DIR)) fs.mkdirSync(DIR, { recursive: true });
 const safe = (t = "") =>
   t.replace(/[\u0000-\u001F]/g, "").substring(0, 80);
 
-//================ SIMPLE QUEUE (FIX CRASH) =================
+//================ QUEUE =================
 const queue = [];
 let running = false;
 
@@ -45,7 +45,7 @@ function addJob(job) {
 async function runQueue() {
   running = true;
 
-  while (queue.length > 0) {
+  while (queue.length) {
     const job = queue.shift();
     try {
       await job();
@@ -57,7 +57,7 @@ async function runQueue() {
   running = false;
 }
 
-//================ DOWNLOAD ENGINE (SAFE + TIMEOUT) =================
+//================ DOWNLOAD ENGINE =================
 function download(url, type = "video") {
   return new Promise((resolve, reject) => {
     const id = crypto.randomUUID();
@@ -68,8 +68,9 @@ function download(url, type = "video") {
       "--no-warnings",
       "--newline",
       "--restrict-filenames",
-      "--socket-timeout", "20",
-      "--retries", "3"
+      "--socket-timeout", "15",
+      "--retries", "2",
+      "--fragment-retries", "2"
     ];
 
     const args =
@@ -79,17 +80,17 @@ function download(url, type = "video") {
 
     const proc = execFile("yt-dlp", args);
 
-    let finished = false;
+    let done = false;
 
     proc.on("error", (err) => {
-      finished = true;
+      done = true;
       reject(err);
     });
 
     proc.on("exit", (code) => {
-      if (finished) return;
+      if (done) return;
 
-      if (code !== 0) return reject(new Error("yt-dlp failed"));
+      if (code !== 0) return reject(new Error("yt-dlp error"));
 
       const file = fs.readdirSync(DIR).find(f => f.includes(id));
       if (!file) return reject(new Error("File not found"));
@@ -97,13 +98,31 @@ function download(url, type = "video") {
       resolve(path.join(DIR, file));
     });
 
-    // 🔥 HARD TIMEOUT (BOT CRASH OLDIRADI)
     setTimeout(() => {
-      if (!finished) {
+      if (!done) {
         proc.kill("SIGKILL");
-        reject(new Error("DOWNLOAD TIMEOUT"));
+        reject(new Error("TIMEOUT"));
       }
-    }, 5 * 60 * 1000); // 5 min max
+    }, 5 * 60 * 1000);
+  });
+}
+
+//================ WRAPPER =================
+function runSafe(ctx, fn) {
+  addJob(async () => {
+    const msg = await ctx.reply("⏳ Yuklanmoqda...");
+
+    try {
+      const file = await fn();
+
+      await ctx.replyWithDocument({ source: file });
+
+      fs.unlinkSync(file);
+      ctx.deleteMessage(msg.message_id).catch(() => {});
+    } catch (e) {
+      console.log(e);
+      ctx.reply("❌ Xatolik yoki timeout");
+    }
   });
 }
 
@@ -189,21 +208,6 @@ bot.on("text", async (ctx) => {
     return search(ctx, text, "music");
 });
 
-//================ SAFE WRAPPER =================
-function safeRun(ctx, fn) {
-  addJob(async () => {
-    const msg = await ctx.reply("⏳ Yuklanmoqda...");
-
-    try {
-      await fn(msg);
-      ctx.deleteMessage(msg.message_id).catch(() => {});
-    } catch (e) {
-      console.log(e);
-      ctx.reply("❌ Xatolik yoki timeout");
-    }
-  });
-}
-
 //================ MOVIE =================
 bot.action(/movie_(\d+)/, async (ctx) => {
   await ctx.answerCbQuery();
@@ -211,15 +215,9 @@ bot.action(/movie_(\d+)/, async (ctx) => {
   const v = ctx.session.list?.[ctx.match[1]];
   if (!v) return ctx.reply("❌ Topilmadi");
 
-  safeRun(ctx, async () => {
-    const file = await download(
-      `https://youtube.com/watch?v=${v.videoId}`,
-      "video"
-    );
-
-    await ctx.replyWithDocument({ source: file });
-    fs.unlinkSync(file);
-  });
+  runSafe(ctx, () =>
+    download(`https://youtube.com/watch?v=${v.videoId}`, "video")
+  );
 });
 
 //================ MUSIC =================
@@ -229,15 +227,9 @@ bot.action(/music_(\d+)/, async (ctx) => {
   const v = ctx.session.list?.[ctx.match[1]];
   if (!v) return ctx.reply("❌ Topilmadi");
 
-  safeRun(ctx, async () => {
-    const file = await download(
-      `https://youtube.com/watch?v=${v.videoId}`,
-      "audio"
-    );
-
-    await ctx.replyWithAudio({ source: file, title: safe(v.title) });
-    fs.unlinkSync(file);
-  });
+  runSafe(ctx, () =>
+    download(`https://youtube.com/watch?v=${v.videoId}`, "audio")
+  );
 });
 
 //================ LINK VIDEO =================
@@ -247,12 +239,7 @@ bot.action("dl_video", async (ctx) => {
   const url = ctx.session.link;
   if (!url) return ctx.reply("❌ Link yo'q");
 
-  safeRun(ctx, async () => {
-    const file = await download(url, "video");
-
-    await ctx.replyWithDocument({ source: file });
-    fs.unlinkSync(file);
-  });
+  runSafe(ctx, () => download(url, "video"));
 });
 
 //================ LINK AUDIO =================
@@ -262,12 +249,7 @@ bot.action("dl_audio", async (ctx) => {
   const url = ctx.session.link;
   if (!url) return ctx.reply("❌ Link yo'q");
 
-  safeRun(ctx, async () => {
-    const file = await download(url, "audio");
-
-    await ctx.replyWithAudio({ source: file });
-    fs.unlinkSync(file);
-  });
+  runSafe(ctx, () => download(url, "audio"));
 });
 
 //================ LAUNCH =================
