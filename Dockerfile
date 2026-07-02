@@ -5,8 +5,10 @@ RUN apt-get update && apt-get install -y \
     python3 \
     python3-pip \
     && pip3 install --break-system-packages yt-dlp \
+    && which yt-dlp \
+    && yt-dlp --version \
     && rm -rf /var/lib/apt/lists/*
-
+    
 WORKDIR /app
 
 COPY package*.json ./
