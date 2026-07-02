@@ -10,8 +10,7 @@ const yts = require("yt-search");
 
 //================ EXPRESS =================
 const app = express();
-
-app.get("/", (req, res) => res.send("Bot running 🚀"));
+app.get("/", (req, res) => res.send("Bot Running 🚀"));
 
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => console.log("Server:", PORT));
@@ -29,28 +28,47 @@ bot.use((ctx, next) => {
 const DIR = "/tmp";
 if (!fs.existsSync(DIR)) fs.mkdirSync(DIR, { recursive: true });
 
-//================ SAFE =================
-const safe = (t = "") =>
-  t.replace(/[\u0000-\u001F]/g, "").substring(0, 80);
-
 //================ QUEUE =================
 const queue = [];
 let running = false;
 
 function addJob(job) {
   queue.push(job);
-  if (!running) runQueue();
+  if (!running) worker();
 }
 
-async function runQueue() {
+async function worker() {
   running = true;
 
-  while (queue.length) {
+  while (queue.length > 0) {
     const job = queue.shift();
+
+    const { ctx, url, type } = job;
+
     try {
-      await job();
+      const msg = await ctx.telegram.sendMessage(
+        ctx.chat.id,
+        "⏳ Yuklanmoqda..."
+      );
+
+      const file = await download(url, type);
+
+      if (type === "audio") {
+        await ctx.telegram.sendAudio(ctx.chat.id, {
+          source: file
+        });
+      } else {
+        await ctx.telegram.sendDocument(ctx.chat.id, {
+          source: file
+        });
+      }
+
+      fs.unlinkSync(file);
+
+      await ctx.telegram.deleteMessage(ctx.chat.id, msg.message_id).catch(() => {});
     } catch (e) {
-      console.log("Job error:", e.message);
+      console.log("JOB ERROR:", e.message);
+      ctx.telegram.sendMessage(ctx.chat.id, "❌ Xatolik yuz berdi");
     }
   }
 
@@ -82,10 +100,7 @@ function download(url, type = "video") {
 
     let done = false;
 
-    proc.on("error", (err) => {
-      done = true;
-      reject(err);
-    });
+    proc.on("error", reject);
 
     proc.on("exit", (code) => {
       if (done) return;
@@ -107,25 +122,6 @@ function download(url, type = "video") {
   });
 }
 
-//================ WRAPPER =================
-function runSafe(ctx, fn) {
-  addJob(async () => {
-    const msg = await ctx.reply("⏳ Yuklanmoqda...");
-
-    try {
-      const file = await fn();
-
-      await ctx.replyWithDocument({ source: file });
-
-      fs.unlinkSync(file);
-      ctx.deleteMessage(msg.message_id).catch(() => {});
-    } catch (e) {
-      console.log(e);
-      ctx.reply("❌ Xatolik yoki timeout");
-    }
-  });
-}
-
 //================ START =================
 bot.start((ctx) => {
   ctx.session = {};
@@ -136,8 +132,7 @@ bot.start((ctx) => {
       [
         Markup.button.callback("🎬 Kino", "movie"),
         Markup.button.callback("🎵 Musiqa", "music")
-      ],
-      [Markup.button.callback("📥 Link", "link")]
+      ]
     ])
   );
 });
@@ -155,17 +150,11 @@ bot.action("music", async (ctx) => {
   ctx.reply("🎵 Qo'shiq nomi:");
 });
 
-bot.action("link", async (ctx) => {
-  await ctx.answerCbQuery();
-  ctx.session.mode = "link";
-  ctx.reply("🔗 Link yuboring:");
-});
-
 //================ SEARCH =================
-async function search(ctx, q, mode) {
+async function search(ctx, q) {
   const r = await yts(q);
-
   const videos = r.videos.slice(0, 10);
+
   if (!videos.length) return ctx.reply("❌ Topilmadi");
 
   ctx.session.list = videos;
@@ -174,7 +163,7 @@ async function search(ctx, q, mode) {
     "📋 Natijalar",
     Markup.inlineKeyboard(
       videos.map((v, i) => [
-        Markup.button.callback(`${i + 1}. ${safe(v.title)}`, `${mode}_${i}`)
+        Markup.button.callback(`${i + 1}. ${v.title.slice(0, 30)}`, `sel_${i}`)
       ])
     )
   );
@@ -184,77 +173,104 @@ async function search(ctx, q, mode) {
 bot.on("text", async (ctx) => {
   const text = ctx.message.text;
 
-  if (/https?:\/\//.test(text)) {
-    ctx.session.link = text;
-
-    return ctx.reply(
-      "📥 Format",
-      Markup.inlineKeyboard([
-        [
-          Markup.button.callback("🎥 Video", "dl_video"),
-          Markup.button.callback("🎵 MP3", "dl_audio")
-        ]
-      ])
-    );
-  }
-
   if (!ctx.session.mode)
     return ctx.reply("Avval menu tanlang");
 
   if (ctx.session.mode === "movie")
-    return search(ctx, text + " official trailer", "movie");
+    return search(ctx, text + " trailer");
 
   if (ctx.session.mode === "music")
-    return search(ctx, text, "music");
+    return search(ctx, text);
 });
 
-//================ MOVIE =================
-bot.action(/movie_(\d+)/, async (ctx) => {
+//================ SELECT =================
+bot.action(/sel_(\d+)/, async (ctx) => {
   await ctx.answerCbQuery();
 
   const v = ctx.session.list?.[ctx.match[1]];
-  if (!v) return ctx.reply("❌ Topilmadi");
+  if (!v) return;
 
-  runSafe(ctx, () =>
-    download(`https://youtube.com/watch?v=${v.videoId}`, "video")
+  const url = `https://youtube.com/watch?v=${v.videoId}`;
+
+  ctx.reply(
+    "Format tanlang",
+    Markup.inlineKeyboard([
+      [
+        Markup.button.callback("🎥 Video", `vid_${ctx.match[1]}`),
+        Markup.button.callback("🎵 MP3", `aud_${ctx.match[1]}`)
+      ]
+    ])
   );
 });
 
-//================ MUSIC =================
-bot.action(/music_(\d+)/, async (ctx) => {
+//================ VIDEO =================
+bot.action(/vid_(\d+)/, async (ctx) => {
   await ctx.answerCbQuery();
 
   const v = ctx.session.list?.[ctx.match[1]];
-  if (!v) return ctx.reply("❌ Topilmadi");
+  if (!v) return;
 
-  runSafe(ctx, () =>
-    download(`https://youtube.com/watch?v=${v.videoId}`, "audio")
-  );
+  addJob({
+    ctx,
+    url: `https://youtube.com/watch?v=${v.videoId}`,
+    type: "video"
+  });
 });
 
-//================ LINK VIDEO =================
-bot.action("dl_video", async (ctx) => {
+//================ AUDIO =================
+bot.action(/aud_(\d+)/, async (ctx) => {
   await ctx.answerCbQuery();
 
-  const url = ctx.session.link;
-  if (!url) return ctx.reply("❌ Link yo'q");
+  const v = ctx.session.list?.[ctx.match[1]];
+  if (!v) return;
 
-  runSafe(ctx, () => download(url, "video"));
+  addJob({
+    ctx,
+    url: `https://youtube.com/watch?v=${v.videoId}`,
+    type: "audio"
+  });
 });
 
-//================ LINK AUDIO =================
-bot.action("dl_audio", async (ctx) => {
+//================ LINK SUPPORT =================
+bot.on("text", async (ctx) => {
+  const text = ctx.message.text;
+
+  if (/https?:\/\//.test(text)) {
+    return ctx.reply(
+      "Format:",
+      Markup.inlineKeyboard([
+        [
+          Markup.button.callback("🎥 Video", "lvid"),
+          Markup.button.callback("🎵 MP3", "laud")
+        ]
+      ])
+    );
+  }
+});
+
+bot.action("lvid", async (ctx) => {
   await ctx.answerCbQuery();
 
-  const url = ctx.session.link;
-  if (!url) return ctx.reply("❌ Link yo'q");
+  addJob({
+    ctx,
+    url: ctx.session.link,
+    type: "video"
+  });
+});
 
-  runSafe(ctx, () => download(url, "audio"));
+bot.action("laud", async (ctx) => {
+  await ctx.answerCbQuery();
+
+  addJob({
+    ctx,
+    url: ctx.session.link,
+    type: "audio"
+  });
 });
 
 //================ LAUNCH =================
 bot.launch();
-console.log("🚀 PRO BOT RUNNING");
+console.log("🚀 STABLE MEDIA BOT V3 RUNNING");
 
 process.once("SIGINT", () => bot.stop("SIGINT"));
 process.once("SIGTERM", () => bot.stop("SIGTERM"));
