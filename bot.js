@@ -2,424 +2,248 @@ require("dotenv").config();
 
 const { Telegraf, Markup, session } = require("telegraf");
 const express = require("express");
-const yts = require("yt-search");
 const fs = require("fs");
 const path = require("path");
-const os = require("os");
+const crypto = require("crypto");
 const { execFile } = require("child_process");
+const yts = require("yt-search");
 
-const bot = new Telegraf(process.env.BOT_TOKEN);
-console.log("PID:", process.pid);
-
-// ================= EXPRESS =================
+//================ EXPRESS (RENDER FIX) =================
 const app = express();
 
 app.get("/", (req, res) => {
-    res.send("Bot is running 🚀");
+  res.send("Bot is running 🚀");
 });
 
-const PORT = process.env.PORT || 8080;
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, () => console.log("Server running on", PORT));
 
-app.listen(PORT, () => {
-    console.log("Server running on", PORT);
-});
+//================ BOT =================
+const bot = new Telegraf(process.env.BOT_TOKEN);
 
-// ================= SESSION =================
 bot.use(session());
-
 bot.use((ctx, next) => {
-    if (!ctx.session) ctx.session = {};
-    return next();
+  ctx.session = ctx.session || {};
+  return next();
 });
 
-// ================= TEMP =================
-const DOWNLOAD_DIR = "/tmp";
+//================ TEMP DIR =================
+const DIR = "/tmp";
+if (!fs.existsSync(DIR)) fs.mkdirSync(DIR, { recursive: true });
 
-if (!fs.existsSync(DOWNLOAD_DIR)) {
-    fs.mkdirSync(DOWNLOAD_DIR, { recursive: true });
-}
+//================ SAFE TEXT =================
+const safe = (t = "") =>
+  t.replace(/[\u0000-\u001F]/g, "").substring(0, 80);
 
-// ================= SAFE TEXT =================
-function safeText(text = "") {
-    return text
-        .toString()
-        .replace(/[\u0000-\u001F\u007F-\u009F]/g, "")
-        .replace(/[\uD800-\uDFFF]/g, "")
-        .slice(0, 60);
-}
+//================ DOWNLOAD ENGINE =================
+function download(url, type = "video") {
+  return new Promise((resolve, reject) => {
+    const id = crypto.randomUUID();
+    const out = path.join(DIR, `${id}.%(ext)s`);
 
-// ================= LINK REGEX =================
-const LINK_REGEX =
-/(https?:\/\/(www\.)?(youtube\.com|youtu\.be|instagram\.com|tiktok\.com)\/\S+)/i;
+    const base = [
+      "--no-playlist",
+      "--no-warnings",
+      "--newline",
+      "--restrict-filenames"
+    ];
 
-// ================= DOWNLOAD =================
+    const args =
+      type === "audio"
+        ? [...base, "-x", "--audio-format", "mp3", "-o", out, url]
+        : [...base, "-f", "bv*+ba/b", "--merge-output-format", "mp4", "-o", out, url];
 
-function download(url, type) {
-    return new Promise((resolve, reject) => {
+    const proc = execFile("yt-dlp", args);
 
-        const base = Date.now();
-        const output = path.join(DOWNLOAD_DIR, `${base}.%(ext)s`);
+    proc.on("error", reject);
 
-        const args =
-            type === "audio"
-                ? [
-                    "--no-playlist",
-                    "--no-update",
-                    "--no-warnings",
-                    "--restrict-filenames",
+    proc.on("exit", (code) => {
+      if (code !== 0) return reject(new Error("yt-dlp error"));
 
-                    "-x",
-                    "--audio-format", "mp3",
-                    "--audio-quality", "0",
+      const file = fs.readdirSync(DIR).find(f => f.includes(id));
+      if (!file) return reject(new Error("File not found"));
 
-                    "-o", output,
-                    url
-                ]
-                : [
-                    "--no-playlist",
-                    "--no-update",
-                    "--no-warnings",
-                    "--restrict-filenames",
-
-                    "-f", "bv*+ba/b",
-                    "--merge-output-format", "mp4",
-
-                    "-o", output,
-                    url
-                ];
-
-        execFile(
-            "/usr/local/bin/yt-dlp",
-            args,
-            (err, stdout, stderr) => {
-
-                console.log(stdout);
-                console.log(stderr);
-
-                if (err)
-                    return reject(err);
-
-                const files = fs.readdirSync(DOWNLOAD_DIR);
-
-                const file = files
-                    .filter(f => f.startsWith(String(base)))
-                    .sort((a, b) => {
-                        return fs.statSync(path.join(DOWNLOAD_DIR, b)).mtimeMs -
-                               fs.statSync(path.join(DOWNLOAD_DIR, a)).mtimeMs;
-                    })[0];
-
-                if (!file)
-                    return reject(new Error("Downloaded file not found"));
-
-                resolve(path.join(DOWNLOAD_DIR, file));
-            }
-        );
+      resolve(path.join(DIR, file));
     });
+  });
 }
 
-// ================= START =================
+//================ START =================
+bot.start((ctx) => {
+  ctx.session = {};
 
-bot.start(async (ctx) => {
+  ctx.reply(
+    "🎬 Media Bot\n\nTanlang:",
+    Markup.inlineKeyboard([
+      [
+        Markup.button.callback("🎬 Kino", "movie"),
+        Markup.button.callback("🎵 Musiqa", "music")
+      ],
+      [Markup.button.callback("📥 Link", "link")]
+    ])
+  );
+});
 
-    ctx.session = {};
+//================ MODE =================
+bot.action("movie", async (ctx) => {
+  await ctx.answerCbQuery();
+  ctx.session.mode = "movie";
+  ctx.reply("🎬 Kino nomi:");
+});
+
+bot.action("music", async (ctx) => {
+  await ctx.answerCbQuery();
+  ctx.session.mode = "music";
+  ctx.reply("🎵 Qo'shiq nomi:");
+});
+
+bot.action("link", async (ctx) => {
+  await ctx.answerCbQuery();
+  ctx.session.mode = "link";
+  ctx.reply("🔗 Link yuboring:");
+});
+
+//================ SEARCH =================
+async function search(ctx, q, mode) {
+  const r = await yts(q);
+
+  const videos = r.videos.slice(0, 10);
+
+  if (!videos.length) return ctx.reply("❌ Topilmadi");
+
+  ctx.session.list = videos;
+
+  ctx.reply(
+    "📋 Natijalar",
+    Markup.inlineKeyboard(
+      videos.map((v, i) => [
+        Markup.button.callback(`${i + 1}. ${safe(v.title)}`, `${mode}_${i}`)
+      ])
+    )
+  );
+}
+
+//================ TEXT =================
+bot.on("text", async (ctx) => {
+  const text = ctx.message.text;
+
+  if (/https?:\/\//.test(text)) {
+    ctx.session.link = text;
 
     return ctx.reply(
+      "📥 Format tanlang",
+      Markup.inlineKeyboard([
+        [
+          Markup.button.callback("🎥 Video", "dl_video"),
+          Markup.button.callback("🎵 MP3", "dl_audio")
+        ]
+      ])
+    );
+  }
 
-        "🎬 Media Botga xush kelibsiz!\n\nKerakli bo'limni tanlang.",
+  if (!ctx.session.mode)
+    return ctx.reply("Avval menyudan tanlang");
 
-        Markup.inlineKeyboard([
-            [
-                Markup.button.callback("🎬 Kino", "movie_mode"),
-                Markup.button.callback("🎵 Musiqa", "music_mode")
-            ]
-        ])
+  if (ctx.session.mode === "movie")
+    return search(ctx, text + " official trailer", "movie");
 
+  if (ctx.session.mode === "music")
+    return search(ctx, text, "music");
+});
+
+//================ MOVIE =================
+bot.action(/movie_(\d+)/, async (ctx) => {
+  await ctx.answerCbQuery();
+
+  const v = ctx.session.list?.[ctx.match[1]];
+  if (!v) return ctx.reply("❌ Topilmadi");
+
+  const msg = await ctx.reply("⏳ Yuklanmoqda...");
+
+  try {
+    const file = await download(
+      `https://youtube.com/watch?v=${v.videoId}`,
+      "video"
     );
 
+    await ctx.replyWithDocument({ source: file });
+
+    fs.unlinkSync(file);
+    ctx.deleteMessage(msg.message_id);
+  } catch (e) {
+    ctx.reply("❌ Error");
+  }
 });
 
-// ================= MODE =================
-
-bot.action("movie_mode", async (ctx) => {
-
-    await ctx.answerCbQuery();
-
-    ctx.session.mode = "movie";
-
-    return ctx.reply("🎬 Kino nomini yuboring");
-
-});
-
-bot.action("music_mode", async (ctx) => {
-
-    await ctx.answerCbQuery();
-
-    ctx.session.mode = "music";
-
-    return ctx.reply("🎵 Qo'shiq nomini yuboring");
-
-});
-
-// ================= TEXT =================
-
-bot.on("text", async (ctx) => {
-
-    const text = ctx.message.text.trim();
-
-    if (LINK_REGEX.test(text)) {
-
-        ctx.session.link = text;
-
-        return ctx.reply(
-
-            "📥 Formatni tanlang",
-
-            Markup.inlineKeyboard([
-                [
-                    Markup.button.callback("🎥 Video", "download_video"),
-                    Markup.button.callback("🎵 MP3", "download_audio")
-                ]
-            ])
-
-        );
-
-    }
-
-    if (!ctx.session.mode) {
-
-        return ctx.reply(
-            "Avval 🎬 Kino yoki 🎵 Musiqa tugmasini tanlang."
-        );
-
-    }
-
-    if (ctx.session.mode === "movie") {
-
-        return search(
-            ctx,
-            text + " official trailer",
-            "movie"
-        );
-
-    }
-
-    if (ctx.session.mode === "music") {
-
-        return search(
-            ctx,
-            text,
-            "music"
-        );
-
-    }
-
-});
-
-// ================= MOVIE BUTTON =================
-
-bot.action(/movie_(\d+)/, async (ctx) => {
-
-    await ctx.answerCbQuery();
-
-    const video = ctx.session.list?.[Number(ctx.match[1])];
-
-    if (!video)
-        return ctx.reply("❌ Topilmadi");
-
-    try {
-
-        await ctx.reply("⏳ Video yuklanmoqda...");
-
-        const file = await download(
-
-            `https://youtube.com/watch?v=${video.videoId}`,
-
-            "video"
-
-        );
-
-        const size = fs.statSync(file).size;
-
-        if (size > 49 * 1024 * 1024) {
-
-            await ctx.replyWithDocument({
-
-                source: file,
-
-                filename: path.basename(file)
-
-            });
-
-        } else {
-
-            await ctx.replyWithVideo({
-
-                source: file,
-
-                caption: safeText(video.title)
-
-            });
-
-        }
-
-        fs.unlinkSync(file);
-
-    }
-
-    catch (e) {
-
-        console.log(e);
-
-        ctx.reply("❌ Video yuklab bo'lmadi");
-
-    }
-
-});
-
-// ================= MUSIC BUTTON =================
-
+//================ MUSIC =================
 bot.action(/music_(\d+)/, async (ctx) => {
+  await ctx.answerCbQuery();
 
-    await ctx.answerCbQuery();
+  const v = ctx.session.list?.[ctx.match[1]];
+  if (!v) return ctx.reply("❌ Topilmadi");
 
-    const song = ctx.session.list?.[Number(ctx.match[1])];
+  const msg = await ctx.reply("⏳ MP3...");
 
-    if (!song)
-        return ctx.reply("❌ Topilmadi");
+  try {
+    const file = await download(
+      `https://youtube.com/watch?v=${v.videoId}`,
+      "audio"
+    );
 
-    try {
+    await ctx.replyWithAudio({ source: file, title: safe(v.title) });
 
-        await ctx.reply("⏳ MP3 yuklanmoqda...");
-
-        const file = await download(
-
-            `https://youtube.com/watch?v=${song.videoId}`,
-
-            "audio"
-
-        );
-
-        await ctx.replyWithAudio({
-
-            source: file,
-
-            title: safeText(song.title),
-
-            performer: safeText(song.author?.name || "Unknown")
-
-        });
-
-        fs.unlinkSync(file);
-
-    }
-
-    catch (e) {
-
-        console.log(e);
-
-        ctx.reply("❌ MP3 yuklab bo'lmadi");
-
-    }
-
+    fs.unlinkSync(file);
+    ctx.deleteMessage(msg.message_id);
+  } catch (e) {
+    ctx.reply("❌ Error");
+  }
 });
 
+//================ LINK VIDEO =================
+bot.action("dl_video", async (ctx) => {
+  await ctx.answerCbQuery();
 
-// ================= LINK DOWNLOAD VIDEO =================
+  const url = ctx.session.link;
+  if (!url) return ctx.reply("❌ Link yo'q");
 
-bot.action("download_video", async (ctx) => {
+  const msg = await ctx.reply("⏳ Yuklanmoqda...");
 
-    await ctx.answerCbQuery();
+  try {
+    const file = await download(url, "video");
 
-    const url = ctx.session.link;
+    await ctx.replyWithDocument({ source: file });
 
-    if (!url)
-        return ctx.reply("❌ Link topilmadi");
-
-    try {
-
-        await ctx.reply("⏳ Video yuklanmoqda...");
-
-        const file = await download(url, "video");
-
-        const size = fs.statSync(file).size;
-
-        if (size > 49 * 1024 * 1024) {
-
-            await ctx.replyWithDocument({
-                source: file,
-                filename: path.basename(file)
-            });
-
-        } else {
-
-            await ctx.replyWithVideo({
-                source: file
-            });
-
-        }
-
-        fs.unlinkSync(file);
-
-    } catch (e) {
-
-        console.log(e);
-
-        ctx.reply("❌ Video yuklab bo'lmadi");
-
-    }
-
+    fs.unlinkSync(file);
+    ctx.deleteMessage(msg.message_id);
+  } catch (e) {
+    ctx.reply("❌ Error");
+  }
 });
 
-// ================= LINK DOWNLOAD AUDIO =================
+//================ LINK AUDIO =================
+bot.action("dl_audio", async (ctx) => {
+  await ctx.answerCbQuery();
 
-bot.action("download_audio", async (ctx) => {
+  const url = ctx.session.link;
+  if (!url) return ctx.reply("❌ Link yo'q");
 
-    await ctx.answerCbQuery();
+  const msg = await ctx.reply("⏳ MP3...");
 
-    const url = ctx.session.link;
+  try {
+    const file = await download(url, "audio");
 
-    if (!url)
-        return ctx.reply("❌ Link topilmadi");
+    await ctx.replyWithAudio({ source: file });
 
-    try {
-
-        await ctx.reply("🎵 MP3 yuklanmoqda...");
-
-        const file = await download(url, "audio");
-
-        await ctx.replyWithAudio({
-            source: file
-        });
-
-        fs.unlinkSync(file);
-
-    } catch (e) {
-
-        console.log(e);
-
-        ctx.reply("❌ MP3 yuklab bo'lmadi");
-
-    }
-
+    fs.unlinkSync(file);
+    ctx.deleteMessage(msg.message_id);
+  } catch (e) {
+    ctx.reply("❌ Error");
+  }
 });
 
-
-
-(async () => {
-    try {
-        await bot.telegram.deleteWebhook({
-            drop_pending_updates: true,
-        });
-
-        await bot.launch({
-            dropPendingUpdates: true,
-        });
-
-        console.log("🚀 BOT FULLY RUNNING");
-    } catch (err) {
-        console.error("Launch error:", err);
-    }
-})();
+//================ LAUNCH =================
+bot.launch();
+console.log("🚀 BOT RUNNING");
 
 process.once("SIGINT", () => bot.stop("SIGINT"));
 process.once("SIGTERM", () => bot.stop("SIGTERM"));
