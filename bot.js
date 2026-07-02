@@ -8,14 +8,12 @@ const crypto = require("crypto");
 const { execFile } = require("child_process");
 const yts = require("yt-search");
 
-//================ EXPRESS =================
 const app = express();
-app.get("/", (req, res) => res.send("V10 PRO FIXED 🚀"));
+app.get("/", (req, res) => res.send("V11 PRO 🚀"));
 
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => console.log("Server:", PORT));
 
-//================ BOT =================
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
 bot.use(session());
@@ -24,14 +22,23 @@ bot.use((ctx, next) => {
   return next();
 });
 
-//================ TEMP =================
 const DIR = "/tmp";
 if (!fs.existsSync(DIR)) fs.mkdirSync(DIR, { recursive: true });
 
-//================ QUEUE (STABLE) =================
+/* ================= QUEUE ================= */
 const queue = [];
 let running = false;
+let currentProc = null;
 
+/* ================= CANCEL ================= */
+function cancelCurrent() {
+  if (currentProc) {
+    currentProc.kill("SIGKILL");
+    currentProc = null;
+  }
+}
+
+/* ================= JOB ================= */
 function addJob(job) {
   queue.push(job);
   if (!running) worker();
@@ -43,10 +50,22 @@ async function worker() {
   while (queue.length) {
     const job = queue.shift();
 
-    const msg = await job.ctx.reply("⏳ Yuklanmoqda...");
+    const msg = await job.ctx.reply(
+      "⏳ Yuklanmoqda...",
+      Markup.inlineKeyboard([
+        [Markup.button.callback("❌ Cancel", "cancel")]
+      ])
+    );
 
     try {
-      const file = await download(job.url, job.type);
+      const file = await download(job.url, job.type, (p, speed) => {
+        job.ctx.telegram.editMessageText(
+          job.ctx.chat.id,
+          msg.message_id,
+          null,
+          `📊 ${p}% | ⚡ ${speed}`
+        ).catch(() => {});
+      });
 
       if (job.type === "audio") {
         await job.ctx.replyWithAudio({ source: file });
@@ -57,70 +76,91 @@ async function worker() {
       fs.unlinkSync(file);
       await job.ctx.deleteMessage(msg.message_id).catch(() => {});
     } catch (e) {
-      console.log("ERROR:", e.message);
-      job.ctx.reply("❌ Yuklab bo‘lmadi (yt-dlp error)");
+      console.log(e.message);
+      job.ctx.reply("❌ Error / timeout");
     }
   }
 
   running = false;
 }
 
-//================ DOWNLOAD ENGINE (FIXED) =================
-function download(url, type = "video") {
+/* ================= DOWNLOAD ================= */
+function download(url, type, onProgress) {
   return new Promise((resolve, reject) => {
+
     const id = crypto.randomUUID();
     const out = path.join(DIR, `${id}.%(ext)s`);
 
-    const base = [
-      "--no-playlist",
-      "--no-warnings",
-      "--newline",
-      "--restrict-filenames",
-      "--no-update",
-      "--socket-timeout", "20",
-      "--retries", "2"
-    ];
-
     const args =
       type === "audio"
-        ? [...base, "-x", "--audio-format", "mp3", "-o", out, url]
-        : [...base, "-f", "bv*+ba/b", "--merge-output-format", "mp4", "-o", out, url];
+        ? [
+            "--no-playlist",
+            "--newline",
+            "--progress",
+            "-x",
+            "--audio-format",
+            "mp3",
+            "-o",
+            out,
+            url
+          ]
+        : [
+            "--no-playlist",
+            "--newline",
+            "--progress",
+            "-f",
+            "bv*+ba/b",
+            "--merge-output-format",
+            "mp4",
+            "-o",
+            out,
+            url
+          ];
 
     const proc = execFile("yt-dlp", args);
+    currentProc = proc;
 
-    let done = false;
+    let progress = "0";
 
-    proc.on("error", (err) => {
-      done = true;
-      reject(err);
+    proc.stdout.on("data", (d) => {
+      const text = d.toString();
+
+      const p = text.match(/(\d{1,3}\.\d)%/);
+      const s = text.match(/at\s+([\d\.]+\w+\/s)/i);
+
+      if (p) progress = p[1];
+      if (onProgress) onProgress(progress, s ? s[1] : "...");
     });
 
+    proc.on("error", reject);
+
     proc.on("exit", (code) => {
-      if (done) return;
+      currentProc = null;
 
-      if (code !== 0) return reject(new Error("yt-dlp failed"));
+      if (code !== 0) return reject(new Error("yt-dlp error"));
 
-      const file = fs.readdirSync(DIR).find(f => f.includes(id));
-      if (!file) return reject(new Error("File not found"));
+      const file = fs.readdirSync(DIR)
+        .map(f => path.join(DIR, f))
+        .sort((a, b) => fs.statSync(b).mtime - fs.statSync(a).mtime)[0];
 
-      resolve(path.join(DIR, file));
+      if (!file) return reject(new Error("file not found"));
+
+      resolve(file);
     });
 
     setTimeout(() => {
-      if (!done) {
-        proc.kill("SIGKILL");
-        reject(new Error("TIMEOUT"));
-      }
-    }, 5 * 60 * 1000);
+      proc.kill("SIGKILL");
+      reject(new Error("timeout"));
+    }, 10 * 60 * 1000);
   });
 }
 
-//================ START =================
+/* ================= START ================= */
 bot.start((ctx) => {
   ctx.session = {};
 
   ctx.reply(
-    "🎬 V10 PRO FIXED BOT",
+    "🎬 V11 PRO MEDIA BOT",
     Markup.inlineKeyboard([
       [
         Markup.button.callback("🎬 Kino", "movie"),
@@ -130,20 +170,20 @@ bot.start((ctx) => {
   );
 });
 
-//================ MODE =================
+/* ================= MODE ================= */
 bot.action("movie", (ctx) => {
   ctx.session.mode = "movie";
   ctx.answerCbQuery();
-  ctx.reply("🎬 Kino nomini yozing:");
+  ctx.reply("🎬 Kino nomi:");
 });
 
 bot.action("music", (ctx) => {
   ctx.session.mode = "music";
   ctx.answerCbQuery();
-  ctx.reply("🎵 Qo‘shiq nomini yozing:");
+  ctx.reply("🎵 Qo‘shiq nomi:");
 });
 
-//================ SEARCH =================
+/* ================= SEARCH ================= */
 async function search(ctx, q) {
   const r = await yts(q);
   const videos = r.videos.slice(0, 10);
@@ -160,37 +200,21 @@ async function search(ctx, q) {
   );
 }
 
-//================ TEXT (FIXED - ONLY ONE HANDLER) =================
+/* ================= TEXT ================= */
 bot.on("text", async (ctx) => {
   const text = ctx.message.text;
-
-  // 🔥 LINK ONLY MODE (IMPORTANT FIX)
-  if (/https?:\/\//.test(text)) {
-    ctx.session.link = text;
-
-    return ctx.reply(
-      "📥 Faqat link format:",
-      Markup.inlineKeyboard([
-        [
-          Markup.button.callback("🎥 Video", "lvid"),
-          Markup.button.callback("🎵 MP3", "laud")
-        ]
-      ])
-    );
-  }
 
   if (!ctx.session.mode)
     return ctx.reply("Avval Kino yoki Musiqa tanlang");
 
-  const q =
-    ctx.session.mode === "movie"
-      ? text + " trailer"
-      : text;
+  const q = ctx.session.mode === "movie"
+    ? text + " trailer"
+    : text;
 
   await search(ctx, q);
 });
 
-//================ SELECT =================
+/* ================= SELECT ================= */
 bot.action(/sel_(\d+)/, async (ctx) => {
   await ctx.answerCbQuery();
 
@@ -199,26 +223,49 @@ bot.action(/sel_(\d+)/, async (ctx) => {
 
   const url = `https://youtube.com/watch?v=${v.videoId}`;
 
-  // 🔥 IMPORTANT FIX:
-  const type = ctx.session.mode === "music" ? "audio" : "video";
-
-  addJob({ ctx, url, type });
+  addJob({
+    ctx,
+    url,
+    type: ctx.session.mode === "music" ? "audio" : "video"
+  });
 });
 
-//================ LINK DOWNLOAD =================
+/* ================= CANCEL ================= */
+bot.action("cancel", (ctx) => {
+  cancelCurrent();
+  ctx.answerCbQuery("Cancelled");
+  ctx.reply("❌ Download cancelled");
+});
+
+/* ================= LINK SUPPORT ================= */
+bot.on("text", async (ctx) => {
+  const text = ctx.message.text;
+
+  if (/https?:\/\//.test(text)) {
+    ctx.session.link = text;
+
+    return ctx.reply(
+      "📥 Format:",
+      Markup.inlineKeyboard([
+        [
+          Markup.button.callback("🎥 Video", "lvid"),
+          Markup.button.callback("🎵 MP3", "laud")
+        ]
+      ])
+    );
+  }
+});
+
 bot.action("lvid", (ctx) => {
-  if (!ctx.session.link) return;
   addJob({ ctx, url: ctx.session.link, type: "video" });
 });
 
 bot.action("laud", (ctx) => {
-  if (!ctx.session.link) return;
   addJob({ ctx, url: ctx.session.link, type: "audio" });
 });
 
-//================ LAUNCH =================
 bot.launch();
-console.log("🚀 V10 PRO FIXED RUNNING");
+console.log("🚀 V11 PRO READY");
 
 process.once("SIGINT", () => bot.stop("SIGINT"));
 process.once("SIGTERM", () => bot.stop("SIGTERM"));
