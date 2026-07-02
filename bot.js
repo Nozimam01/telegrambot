@@ -87,10 +87,33 @@ function download(url, type = "video") {
       "--retries", "2"
     ];
 
-    const args =
-      type === "audio"
-        ? [...base, "-x", "--audio-format", "mp3", "-o", out, url]
-        : [...base, "-f", "bv*+ba/b", "--merge-output-format", "mp4", "-o", out, url];
+   const args =
+  type === "audio"
+    ? [
+        "--no-update",
+        "--no-warnings",
+        "--newline",
+        "--restrict-filenames",
+        "-x",
+        "--audio-format",
+        "mp3",
+        "-o",
+        out,
+        url
+      ]
+    : [
+        "--no-update",
+        "--no-warnings",
+        "--newline",
+        "--restrict-filenames",
+        "-f",
+        "bv*+ba/b",
+        "--merge-output-format",
+        "mp4",
+        "-o",
+        out,
+        url
+      ];
 
     const proc = execFile("yt-dlp", [
   "--no-update",
