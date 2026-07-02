@@ -86,18 +86,9 @@ function download(url, type) {
                   ];
 
         execFile(
-            "yt-dlp",
-            args,
-            (err, stdout, stderr) => {
-
-                console.log(stdout);
-                console.log(stderr);
-
-                if (err) {
-                    console.log(err);
-                    return reject(err);
-                }
-
+    "/usr/local/bin/yt-dlp",
+    args,
+    (err, stdout, stderr) => {
                 const file = fs
                     .readdirSync(DOWNLOAD_DIR)
                     .find(f => f.startsWith(String(base)));
