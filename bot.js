@@ -10,9 +10,9 @@ const yts = require("yt-search");
 
 // ================= EXPRESS =================
 const app = express();
-app.get("/", (req, res) => res.send("V11 PRO BOT 🚀"));
+app.get("/", (req, res) => res.send("V12 PRO BOT 🚀"));
 
-const PORT = process.env.PORT || 10000;
+const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => console.log("PORT:", PORT));
 
 // ================= BOT =================
@@ -28,12 +28,64 @@ bot.use((ctx, next) => {
 const DIR = "/tmp";
 if (!fs.existsSync(DIR)) fs.mkdirSync(DIR, { recursive: true });
 
-// ================= SAFE =================
-const safe = (t = "") =>
-  t.replace(/[\u0000-\u001F]/g, "").substring(0, 80);
+// ================= QUEUE =================
+const queue = [];
+let running = false;
 
-// ================= DOWNLOAD =================
-function download(url, type = "video") {
+function addJob(job) {
+  queue.push(job);
+  if (!running) worker();
+}
+
+async function worker() {
+  running = true;
+
+  while (queue.length) {
+    const job = queue.shift();
+
+    try {
+      const msg = await job.ctx.reply("⏳ Yuklanmoqda... 0%");
+
+      const file = await download(job.url, job.type, async (p) => {
+        try {
+          await job.ctx.telegram.editMessageText(
+            job.ctx.chat.id,
+            msg.message_id,
+            null,
+            `⏳ Yuklanmoqda... ${p}%`
+          );
+        } catch {}
+      });
+
+      const thumb = job.thumb;
+
+      if (job.type === "audio") {
+        await job.ctx.telegram.sendAudio(job.ctx.chat.id, {
+          source: file,
+          title: job.title,
+          performer: job.author,
+          thumbnail: thumb
+        });
+      } else {
+        await job.ctx.telegram.sendVideo(job.ctx.chat.id, {
+          source: file,
+          caption: job.title
+        });
+      }
+
+      fs.unlinkSync(file);
+      await job.ctx.deleteMessage(msg.message_id).catch(() => {});
+    } catch (e) {
+      console.log(e);
+      job.ctx.reply("❌ Xatolik / timeout");
+    }
+  }
+
+  running = false;
+}
+
+// ================= DOWNLOAD ENGINE =================
+function download(url, type, onProgress) {
   return new Promise((resolve, reject) => {
     const id = crypto.randomUUID();
     const out = path.join(DIR, `${id}.%(ext)s`);
@@ -42,9 +94,9 @@ function download(url, type = "video") {
       type === "audio"
         ? [
             "yt-dlp",
-            "--no-update",
-            "--no-warnings",
-            "--restrict-filenames",
+            "--no-playlist",
+            "--quiet",
+            "--progress",
             "-x",
             "--audio-format",
             "mp3",
@@ -54,11 +106,11 @@ function download(url, type = "video") {
           ]
         : [
             "yt-dlp",
-            "--no-update",
-            "--no-warnings",
-            "--restrict-filenames",
+            "--no-playlist",
+            "--quiet",
+            "--progress",
             "-f",
-            "bv*+ba/b",
+            "bv*[height<=720]+ba/b",
             "--merge-output-format",
             "mp4",
             "-o",
@@ -68,34 +120,30 @@ function download(url, type = "video") {
 
     const proc = execFile("yt-dlp", args);
 
-    let done = false;
+    proc.stdout?.on("data", (data) => {
+      const str = data.toString();
+      const match = str.match(/(\d+\.?\d*)%/);
+      if (match && onProgress) onProgress(Math.floor(match[1]));
+    });
 
     proc.on("error", reject);
 
     proc.on("exit", (code) => {
-      if (done) return;
-      if (code !== 0) return reject(new Error("yt-dlp failed"));
+      if (code !== 0) return reject(new Error("yt-dlp error"));
 
       const file = fs.readdirSync(DIR).find(f => f.includes(id));
       if (!file) return reject(new Error("file not found"));
 
       resolve(path.join(DIR, file));
     });
-
-    setTimeout(() => {
-      done = true;
-      proc.kill("SIGKILL");
-      reject(new Error("timeout"));
-    }, 5 * 60 * 1000);
   });
 }
 
 // ================= START =================
 bot.start((ctx) => {
   ctx.session = {};
-
   ctx.reply(
-    "🎬 V11 PRO MEDIA BOT",
+    "🎬 V12 PRO MEDIA BOT",
     Markup.inlineKeyboard([
       [
         Markup.button.callback("🎬 Kino", "movie"),
@@ -106,16 +154,16 @@ bot.start((ctx) => {
 });
 
 // ================= MODE =================
-bot.action("movie", async (ctx) => {
-  await ctx.answerCbQuery();
+bot.action("movie", (ctx) => {
   ctx.session.mode = "movie";
-  ctx.reply("🎬 Kino nomini yozing:");
+  ctx.answerCbQuery();
+  ctx.reply("🎬 Kino nomi:");
 });
 
-bot.action("music", async (ctx) => {
-  await ctx.answerCbQuery();
+bot.action("music", (ctx) => {
   ctx.session.mode = "music";
-  ctx.reply("🎵 Qo‘shiq nomini yozing:");
+  ctx.answerCbQuery();
+  ctx.reply("🎵 Qo‘shiq nomi:");
 });
 
 // ================= SEARCH =================
@@ -125,23 +173,21 @@ async function search(ctx, q) {
 
   ctx.session.list = videos;
 
-  return ctx.reply(
+  ctx.reply(
     "📋 Natijalar:",
     Markup.inlineKeyboard(
       videos.map((v, i) => [
-        Markup.button.callback(`${i + 1}. ${v.title.slice(0, 35)}`, `sel_${i}`)
+        Markup.button.callback(v.title.slice(0, 35), `sel_${i}`)
       ])
     )
   );
 }
 
-// ================= SINGLE TEXT HANDLER (FIXED) =================
+// ================= TEXT =================
 bot.on("text", async (ctx) => {
   const text = ctx.message.text;
 
-  // LINK MODE
   if (/https?:\/\//.test(text)) {
-    ctx.session.mode = "link";
     ctx.session.link = text;
 
     return ctx.reply(
@@ -158,10 +204,7 @@ bot.on("text", async (ctx) => {
   if (!ctx.session.mode)
     return ctx.reply("Avval Kino yoki Musiqa tanlang");
 
-  const q =
-    ctx.session.mode === "movie"
-      ? text + " trailer"
-      : text;
+  const q = ctx.session.mode === "movie" ? text + " trailer" : text;
 
   await search(ctx, q);
 });
@@ -175,57 +218,33 @@ bot.action(/sel_(\d+)/, async (ctx) => {
 
   const url = `https://youtube.com/watch?v=${v.videoId}`;
 
-  const type = ctx.session.mode === "music" ? "audio" : "video";
-
-  await ctx.reply("⏳ Yuklanmoqda...");
-
-  const file = await download(url, type);
-
-  if (type === "audio") {
-    await ctx.replyWithAudio({
-      source: file,
-      title: v.title,
-      performer: v.author?.name || "Unknown"
-    });
-  } else {
-    await ctx.replyWithVideo({ source: file, caption: v.title });
-  }
-
-  fs.unlinkSync(file);
+  addJob({
+    ctx,
+    url,
+    type: ctx.session.mode === "music" ? "audio" : "video",
+    title: v.title,
+    author: v.author?.name || "Unknown",
+    thumb: `https://i.ytimg.com/vi/${v.videoId}/hqdefault.jpg`
+  });
 });
 
-// ================= LINK VIDEO =================
-bot.action("link_video", async (ctx) => {
-  await ctx.answerCbQuery();
-
-  const url = ctx.session.link;
-  if (!url) return;
-
-  await ctx.reply("⏳ Yuklanmoqda...");
-
-  const file = await download(url, "video");
-
-  await ctx.replyWithVideo({ source: file });
-
-  fs.unlinkSync(file);
+// ================= LINK =================
+bot.action("link_video", (ctx) => {
+  addJob({
+    ctx,
+    url: ctx.session.link,
+    type: "video"
+  });
 });
 
-// ================= LINK AUDIO =================
-bot.action("link_audio", async (ctx) => {
-  await ctx.answerCbQuery();
-
-  const url = ctx.session.link;
-  if (!url) return;
-
-  await ctx.reply("⏳ MP3 tayyorlanmoqda...");
-
-  const file = await download(url, "audio");
-
-  await ctx.replyWithAudio({ source: file });
-
-  fs.unlinkSync(file);
+bot.action("link_audio", (ctx) => {
+  addJob({
+    ctx,
+    url: ctx.session.link,
+    type: "audio"
+  });
 });
 
 // ================= LAUNCH =================
 bot.launch();
-console.log("🚀 V11 PRO FIXED RUNNING");
+console.log("🚀 V12 PRO RUNNING");
