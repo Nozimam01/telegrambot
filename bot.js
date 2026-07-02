@@ -57,105 +57,64 @@ const LINK_REGEX =
 function download(url, type) {
     return new Promise((resolve, reject) => {
 
-        const output = path.join(DOWNLOAD_DIR, "%(title)s.%(ext)s");
+        const base = Date.now();
+        const output = path.join(DOWNLOAD_DIR, `${base}.%(ext)s`);
 
         const args =
             type === "audio"
                 ? [
-                      "-x",
-                      "--audio-format",
-                      "mp3",
-                      "--ffmpeg-location",
-                      "/usr/bin",
-                      "--print",
-                      "after_move:filepath",
-                      "-o",
-                      output,
-                      url
-                  ]
+                    "--no-playlist",
+                    "--no-update",
+                    "--no-warnings",
+                    "--restrict-filenames",
+
+                    "-x",
+                    "--audio-format", "mp3",
+                    "--audio-quality", "0",
+
+                    "-o", output,
+                    url
+                ]
                 : [
-                      "-f",
-                      "bestvideo+bestaudio/best",
-                      "--merge-output-format",
-                      "mp4",
-                      "--ffmpeg-location",
-                      "/usr/bin",
-                      "--print",
-                      "after_move:filepath",
-                      "-o",
-                      output,
-                      url
-                  ];
+                    "--no-playlist",
+                    "--no-update",
+                    "--no-warnings",
+                    "--restrict-filenames",
+
+                    "-f", "bv*+ba/b",
+                    "--merge-output-format", "mp4",
+
+                    "-o", output,
+                    url
+                ];
 
         execFile(
             "/usr/local/bin/yt-dlp",
             args,
             (err, stdout, stderr) => {
 
-                console.log("========== YT-DLP ==========");
-                console.log("STDOUT:\n", stdout);
-                console.log("STDERR:\n", stderr);
-                console.log("============================");
+                console.log(stdout);
+                console.log(stderr);
 
-                if (err) {
-                    console.error(err);
+                if (err)
                     return reject(err);
-                }
 
-                const file = stdout
-                    .trim()
-                    .split("\n")
-                    .pop()
-                    .trim();
+                const files = fs.readdirSync(DOWNLOAD_DIR);
 
-                console.log("Downloaded file:", file);
+                const file = files
+                    .filter(f => f.startsWith(String(base)))
+                    .sort((a, b) => {
+                        return fs.statSync(path.join(DOWNLOAD_DIR, b)).mtimeMs -
+                               fs.statSync(path.join(DOWNLOAD_DIR, a)).mtimeMs;
+                    })[0];
 
-                if (!file || !fs.existsSync(file)) {
+                if (!file)
                     return reject(new Error("Downloaded file not found"));
-                }
 
-                resolve(file);
+                resolve(path.join(DOWNLOAD_DIR, file));
             }
         );
     });
-}
-// ================= SEARCH =================
-
-async function search(ctx, query, mode) {
-
-    const result = await yts(query);
-
-    const videos = result.videos
-        .filter(v => v.videoId)
-        .slice(0, 10);
-
-    if (!videos.length)
-        return ctx.reply("❌ Hech narsa topilmadi.");
-
-    ctx.session.list = videos;
-
-    return ctx.reply(
-
-        "📌 Natijalar",
-
-        Markup.inlineKeyboard(
-
-            videos.map((v, i) => [
-
-                Markup.button.callback(
-
-                    safeText(v.title),
-
-                    `${mode}_${i}`
-
-                )
-
-            ])
-
-        )
-
-    );
-
 }
 
 // ================= START =================
