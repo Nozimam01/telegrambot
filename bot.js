@@ -45,7 +45,12 @@ async function worker() {
     const msg = await job.ctx.reply("⏳ Fayl yuklab olinmoqda va tayyorlanyapti, iltimos kuting...").catch(() => null);
 
     try {
-      const file = await download(job.url, job.type);
+      // Fayl nomini chiroyli qilish uchun tozalaymiz (maxsus belgilarni olib tashlaymiz)
+      const cleanTitle = (job.title || "media").replace(/[/\\?%*:|"<>\s]+/g, "_").slice(0, 60);
+      const fileId = crypto.randomUUID().slice(0, 8);
+      const safeFileName = `${cleanTitle}_${fileId}`; // Bir xil nomli fayllar aralashib ketmasligi uchun oxiriga qisqa ID
+
+      const file = await download(job.url, job.type, safeFileName);
 
       if (msg) {
         await job.ctx.telegram.editMessageText(job.ctx.chat.id, msg.message_id, null, "🚀 Fayl tayyor! Telegramga yuborilmoqda...").catch(() => {});
@@ -84,11 +89,11 @@ async function worker() {
   running = false;
 }
 
-// ================= OPTIMIZED DOWNLOAD WITH 2GB LIMIT =================
-function download(url, type) {
+// ================= OPTIMIZED DOWNLOAD WITH 2GB LIMIT & REAL NAME =================
+function download(url, type, fileName) {
   return new Promise((resolve, reject) => {
-    const id = crypto.randomUUID();
-    const out = path.join(DIR, `${id}.%(ext)s`);
+    // Endi fayl crypto ID bilan emas, qo'shiq/video nomi bilan saqlanadi
+    const out = path.join(DIR, `${fileName}.%(ext)s`);
 
     const commonArgs = [
       "--no-playlist",
@@ -97,7 +102,7 @@ function download(url, type) {
       "--socket-timeout", "20",
       "--retries", "3",
       "--fragment-retries", "5",
-      "--max-filesize", "2G", // <--- MANA SHU YERDA MAX 2GB LIMIT QO'YILDI (2G = 2 Gigabayt)
+      "--max-filesize", "2G", 
       "--extractor-args", "youtube:player_client=android,web", 
       "-o", out,
       url
@@ -115,16 +120,13 @@ function download(url, type) {
     let killed = false;
     let isTooLarge = false;
 
-    // yt-dlp xatoliklarini kuzatish
     proc.stderr.on("data", (d) => {
       const s = d.toString();
-      // Agar yt-dlp fayl hajmi kattaligi uchun to'xtasa
       if (s.includes("File is larger than max-filesize")) {
         isTooLarge = true;
       }
     });
 
-    // 2GB faylni yuklash uchun Railway/Render'ga vaqt kerak, shuning uchun timeoutni 7 daqiqa qildik
     const timer = setTimeout(() => {
       killed = true;
       proc.kill("SIGKILL");
@@ -146,7 +148,8 @@ function download(url, type) {
 
       if (code !== 0) return reject(new Error(`yt-dlp failed with code ${code}`));
 
-      const file = fs.readdirSync(DIR).find(f => f.includes(id));
+      // Papkadan aynan shu fayl nomi bilan boshlanadigan faylni qidiramiz
+      const file = fs.readdirSync(DIR).find(f => f.includes(fileName));
       if (!file) return reject(new Error("File not found"));
 
       resolve(path.join(DIR, file));
@@ -246,12 +249,13 @@ bot.action(/sel_(\d+)/, async (ctx) => {
 // ================= LINK =================
 bot.action("link_video", (ctx) => {
   ctx.answerCbQuery();
-  addJob({ ctx, url: ctx.session.link, type: "video" });
+  // Havola (link) yuborilganda ham sarlavha chiroyli chiqishi uchun default nom beramiz
+  addJob({ ctx, url: ctx.session.link, type: "video", title: "Video_fayl" });
 });
 
 bot.action("link_audio", (ctx) => {
   ctx.answerCbQuery();
-  addJob({ ctx, url: ctx.session.link, type: "audio" });
+  addJob({ ctx, url: ctx.session.link, type: "audio", title: "Audio_fayl" });
 });
 
 // ================= LAUNCH =================
