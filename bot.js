@@ -5,13 +5,12 @@ const express = require("express");
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
-const { execFile } = require("child_process");
+const { spawn } = require("child_process");
 const yts = require("yt-search");
 
 // ================= EXPRESS =================
 const app = express();
-app.get("/", (req, res) => res.send("V12 PRO CLEAN 🚀"));
-
+app.get("/", (req, res) => res.send("🔥 V13 PRO BOT RUNNING"));
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => console.log("PORT:", PORT));
 
@@ -28,10 +27,11 @@ bot.use((ctx, next) => {
 const DIR = "/tmp";
 if (!fs.existsSync(DIR)) fs.mkdirSync(DIR, { recursive: true });
 
-// ================= QUEUE =================
+// ================= JOB CONTROL =================
 const queue = [];
 let running = false;
 
+// ================= QUEUE =================
 function addJob(job) {
   queue.push(job);
   if (!running) worker();
@@ -43,45 +43,36 @@ async function worker() {
   while (queue.length) {
     const job = queue.shift();
 
-    const msg = await job.ctx.reply("⏳ Yuklanmoqda... 0%");
+    const msg = await job.ctx.reply("⏳ Yuklanmoqda...");
 
     try {
-      const file = await download(job.url, job.type, async (p) => {
-        try {
-          await job.ctx.telegram.editMessageText(
-            job.ctx.chat.id,
-            msg.message_id,
-            null,
-            `⏳ Yuklanmoqda... ${p}%`
-          );
-        } catch {}
-      });
+      const file = await download(job.url, job.type, job.onProgress);
 
       if (job.type === "audio") {
-        await job.ctx.telegram.sendAudio(job.ctx.chat.id, {
+        await job.ctx.replyWithAudio({
           source: file,
-          title: job.title,
-          performer: job.author
+          title: job.title || "Audio",
+          performer: job.author || "Unknown"
         });
       } else {
-        await job.ctx.telegram.sendVideo(job.ctx.chat.id, {
+        await job.ctx.replyWithVideo({
           source: file,
-          caption: job.title
+          caption: job.title || "Video"
         });
       }
 
       fs.unlinkSync(file);
-      await job.ctx.telegram.deleteMessage(job.ctx.chat.id, msg.message_id).catch(() => {});
+      await job.ctx.deleteMessage(msg.message_id).catch(() => {});
     } catch (e) {
-      console.log(e.message);
-      job.ctx.reply("❌ Xatolik / timeout");
+      console.log("ERROR:", e.message);
+      job.ctx.reply("❌ Download error / timeout");
     }
   }
 
   running = false;
 }
 
-// ================= DOWNLOAD =================
+// ================= FAST DOWNLOAD (NO FREEZE) =================
 function download(url, type, onProgress) {
   return new Promise((resolve, reject) => {
     const id = crypto.randomUUID();
@@ -90,9 +81,12 @@ function download(url, type, onProgress) {
     const args =
       type === "audio"
         ? [
+            "yt-dlp",
             "--no-playlist",
             "--no-warnings",
-            "--progress",
+            "--quiet",
+            "--socket-timeout", "10",
+            "--retries", "1",
             "-x",
             "--audio-format",
             "mp3",
@@ -101,11 +95,14 @@ function download(url, type, onProgress) {
             url
           ]
         : [
+            "yt-dlp",
             "--no-playlist",
             "--no-warnings",
-            "--progress",
+            "--quiet",
+            "--socket-timeout", "10",
+            "--retries", "1",
             "-f",
-            "bv*[height<=720]+ba/b",
+            "bv[height<=480]+ba/b",
             "--merge-output-format",
             "mp4",
             "-o",
@@ -113,17 +110,36 @@ function download(url, type, onProgress) {
             url
           ];
 
-    const proc = execFile("yt-dlp", args);
+    const proc = spawn(args[0], args.slice(1));
 
-    proc.stdout?.on("data", (d) => {
-      const m = d.toString().match(/(\d+\.?\d*)%/);
-      if (m && onProgress) onProgress(Math.floor(m[1]));
+    let killed = false;
+
+    // progress (optional)
+    proc.stdout.on("data", (d) => {
+      const s = d.toString();
+      const match = s.match(/(\d+\.?\d*)%/);
+      if (match && onProgress) {
+        onProgress(Math.floor(match[1]));
+      }
     });
 
-    proc.on("error", reject);
+    // HARD TIMEOUT (SAFE)
+    const timer = setTimeout(() => {
+      killed = true;
+      proc.kill("SIGKILL");
+      reject(new Error("TIMEOUT"));
+    }, 120000);
 
-    proc.on("exit", (code) => {
-      if (code !== 0) return reject(new Error("yt-dlp error"));
+    proc.on("error", (err) => {
+      clearTimeout(timer);
+      reject(err);
+    });
+
+    proc.on("close", (code) => {
+      clearTimeout(timer);
+      if (killed) return;
+
+      if (code !== 0) return reject(new Error("yt-dlp failed"));
 
       const file = fs.readdirSync(DIR).find(f => f.includes(id));
       if (!file) return reject(new Error("file not found"));
@@ -136,9 +152,8 @@ function download(url, type, onProgress) {
 // ================= START =================
 bot.start((ctx) => {
   ctx.session = {};
-
   ctx.reply(
-    "🎬 V12 PRO MEDIA BOT",
+    "🚀 V13 PRO MEDIA BOT",
     Markup.inlineKeyboard([
       [
         Markup.button.callback("🎬 Kino", "movie"),
@@ -168,7 +183,7 @@ async function search(ctx, q) {
 
   ctx.session.list = videos;
 
-  ctx.reply(
+  return ctx.reply(
     "📋 Natijalar:",
     Markup.inlineKeyboard(
       videos.map((v, i) => [
@@ -178,16 +193,15 @@ async function search(ctx, q) {
   );
 }
 
-// ================= TEXT (FIXED LOGIC) =================
+// ================= TEXT =================
 bot.on("text", async (ctx) => {
   const text = ctx.message.text;
 
-  // 🔗 LINK MODE (ONLY HERE FORMAT ASK)
   if (/https?:\/\//.test(text)) {
     ctx.session.link = text;
 
     return ctx.reply(
-      "📥 Format tanlang:",
+      "📥 Format:",
       Markup.inlineKeyboard([
         [
           Markup.button.callback("🎥 Video", "link_video"),
@@ -219,7 +233,7 @@ bot.action(/sel_(\d+)/, async (ctx) => {
     url,
     type: ctx.session.mode === "music" ? "audio" : "video",
     title: v.title,
-    author: v.author?.name || "Unknown"
+    author: v.author?.name
   });
 });
 
@@ -242,7 +256,7 @@ bot.action("link_audio", (ctx) => {
 
 // ================= LAUNCH =================
 bot.launch();
-console.log("🚀 V12 PRO FIXED READY");
+console.log("🔥 V13 PRO STABLE READY");
 
 process.once("SIGINT", () => bot.stop("SIGINT"));
 process.once("SIGTERM", () => bot.stop("SIGTERM"));
