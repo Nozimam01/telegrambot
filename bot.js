@@ -10,7 +10,7 @@ const yts = require("yt-search");
 
 // ================= EXPRESS =================
 const app = express();
-app.get("/", (req, res) => res.send("V12 PRO BOT 🚀"));
+app.get("/", (req, res) => res.send("V12 PRO CLEAN 🚀"));
 
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => console.log("PORT:", PORT));
@@ -43,9 +43,9 @@ async function worker() {
   while (queue.length) {
     const job = queue.shift();
 
-    try {
-      const msg = await job.ctx.reply("⏳ Yuklanmoqda... 0%");
+    const msg = await job.ctx.reply("⏳ Yuklanmoqda... 0%");
 
+    try {
       const file = await download(job.url, job.type, async (p) => {
         try {
           await job.ctx.telegram.editMessageText(
@@ -57,14 +57,11 @@ async function worker() {
         } catch {}
       });
 
-      const thumb = job.thumb;
-
       if (job.type === "audio") {
         await job.ctx.telegram.sendAudio(job.ctx.chat.id, {
           source: file,
           title: job.title,
-          performer: job.author,
-          thumbnail: thumb
+          performer: job.author
         });
       } else {
         await job.ctx.telegram.sendVideo(job.ctx.chat.id, {
@@ -74,9 +71,9 @@ async function worker() {
       }
 
       fs.unlinkSync(file);
-      await job.ctx.deleteMessage(msg.message_id).catch(() => {});
+      await job.ctx.telegram.deleteMessage(job.ctx.chat.id, msg.message_id).catch(() => {});
     } catch (e) {
-      console.log(e);
+      console.log(e.message);
       job.ctx.reply("❌ Xatolik / timeout");
     }
   }
@@ -84,7 +81,7 @@ async function worker() {
   running = false;
 }
 
-// ================= DOWNLOAD ENGINE =================
+// ================= DOWNLOAD =================
 function download(url, type, onProgress) {
   return new Promise((resolve, reject) => {
     const id = crypto.randomUUID();
@@ -93,9 +90,8 @@ function download(url, type, onProgress) {
     const args =
       type === "audio"
         ? [
-            "yt-dlp",
             "--no-playlist",
-            "--quiet",
+            "--no-warnings",
             "--progress",
             "-x",
             "--audio-format",
@@ -105,9 +101,8 @@ function download(url, type, onProgress) {
             url
           ]
         : [
-            "yt-dlp",
             "--no-playlist",
-            "--quiet",
+            "--no-warnings",
             "--progress",
             "-f",
             "bv*[height<=720]+ba/b",
@@ -120,10 +115,9 @@ function download(url, type, onProgress) {
 
     const proc = execFile("yt-dlp", args);
 
-    proc.stdout?.on("data", (data) => {
-      const str = data.toString();
-      const match = str.match(/(\d+\.?\d*)%/);
-      if (match && onProgress) onProgress(Math.floor(match[1]));
+    proc.stdout?.on("data", (d) => {
+      const m = d.toString().match(/(\d+\.?\d*)%/);
+      if (m && onProgress) onProgress(Math.floor(m[1]));
     });
 
     proc.on("error", reject);
@@ -142,6 +136,7 @@ function download(url, type, onProgress) {
 // ================= START =================
 bot.start((ctx) => {
   ctx.session = {};
+
   ctx.reply(
     "🎬 V12 PRO MEDIA BOT",
     Markup.inlineKeyboard([
@@ -157,13 +152,13 @@ bot.start((ctx) => {
 bot.action("movie", (ctx) => {
   ctx.session.mode = "movie";
   ctx.answerCbQuery();
-  ctx.reply("🎬 Kino nomi:");
+  ctx.reply("🎬 Kino nomini yozing:");
 });
 
 bot.action("music", (ctx) => {
   ctx.session.mode = "music";
   ctx.answerCbQuery();
-  ctx.reply("🎵 Qo‘shiq nomi:");
+  ctx.reply("🎵 Qo‘shiq nomini yozing:");
 });
 
 // ================= SEARCH =================
@@ -183,10 +178,11 @@ async function search(ctx, q) {
   );
 }
 
-// ================= TEXT =================
+// ================= TEXT (FIXED LOGIC) =================
 bot.on("text", async (ctx) => {
   const text = ctx.message.text;
 
+  // 🔗 LINK MODE (ONLY HERE FORMAT ASK)
   if (/https?:\/\//.test(text)) {
     ctx.session.link = text;
 
@@ -223,8 +219,7 @@ bot.action(/sel_(\d+)/, async (ctx) => {
     url,
     type: ctx.session.mode === "music" ? "audio" : "video",
     title: v.title,
-    author: v.author?.name || "Unknown",
-    thumb: `https://i.ytimg.com/vi/${v.videoId}/hqdefault.jpg`
+    author: v.author?.name || "Unknown"
   });
 });
 
@@ -247,4 +242,7 @@ bot.action("link_audio", (ctx) => {
 
 // ================= LAUNCH =================
 bot.launch();
-console.log("🚀 V12 PRO RUNNING");
+console.log("🚀 V12 PRO FIXED READY");
+
+process.once("SIGINT", () => bot.stop("SIGINT"));
+process.once("SIGTERM", () => bot.stop("SIGTERM"));
