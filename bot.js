@@ -10,7 +10,7 @@ const yts = require("yt-search");
 
 //================ EXPRESS =================
 const app = express();
-app.get("/", (req, res) => res.send("V9 PRO BOT 🚀"));
+app.get("/", (req, res) => res.send("V10 PRO BOT 🚀"));
 
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => console.log("Server:", PORT));
@@ -40,7 +40,7 @@ function addJob(job) {
 async function worker() {
   running = true;
 
-  while (queue.length) {
+  while (queue.length > 0) {
     const job = queue.shift();
 
     try {
@@ -62,10 +62,13 @@ async function worker() {
       }
 
       fs.unlinkSync(file);
-      await job.ctx.telegram.deleteMessage(job.ctx.chat.id, msg.message_id).catch(() => {});
+
+      await job.ctx.telegram
+        .deleteMessage(job.ctx.chat.id, msg.message_id)
+        .catch(() => {});
     } catch (e) {
       console.log("ERROR:", e.message);
-      job.ctx.telegram.sendMessage(job.ctx.chat.id, "❌ Xatolik");
+      job.ctx.telegram.sendMessage(job.ctx.chat.id, "❌ Xatolik / timeout");
     }
   }
 
@@ -76,73 +79,63 @@ async function worker() {
 function download(url, type = "video") {
   return new Promise((resolve, reject) => {
     const id = crypto.randomUUID();
+
     const out = path.join(DIR, `${id}.%(ext)s`);
 
-    const base = [
-      "--no-playlist",
-      "--no-warnings",
-      "--newline",
-      "--restrict-filenames",
-      "--socket-timeout", "15",
-      "--retries", "2"
-    ];
+    const args =
+      type === "audio"
+        ? [
+            "--no-update",
+            "--no-warnings",
+            "--newline",
+            "--restrict-filenames",
+            "-x",
+            "--audio-format",
+            "mp3",
+            "-o",
+            out,
+            url
+          ]
+        : [
+            "--no-update",
+            "--no-warnings",
+            "--newline",
+            "--restrict-filenames",
+            "-f",
+            "bv*+ba/b",
+            "--merge-output-format",
+            "mp4",
+            "-o",
+            out,
+            url
+          ];
 
-   const args =
-  type === "audio"
-    ? [
-        "--no-update",
-        "--no-warnings",
-        "--newline",
-        "--restrict-filenames",
-        "-x",
-        "--audio-format",
-        "mp3",
-        "-o",
-        out,
-        url
-      ]
-    : [
-        "--no-update",
-        "--no-warnings",
-        "--newline",
-        "--restrict-filenames",
-        "-f",
-        "bv*+ba/b",
-        "--merge-output-format",
-        "mp4",
-        "-o",
-        out,
-        url
-      ];
+    const proc = execFile("yt-dlp", args);
 
-    const proc = execFile("yt-dlp", [
-  "--no-update",
-  "--no-warnings",
-  "--newline",
-  "--restrict-filenames",
-  "-f",
-  "bv*+ba/b",
-  "--merge-output-format",
-  "mp4",
-  "-o",
-  out,
-  url
-]);
+    let done = false;
 
-    proc.on("error", reject);
+    proc.on("error", (err) => {
+      done = true;
+      reject(err);
+    });
 
     proc.on("exit", (code) => {
+      if (done) return;
+
       if (code !== 0) return reject(new Error("yt-dlp error"));
 
       const file = fs.readdirSync(DIR).find(f => f.includes(id));
+
       if (!file) return reject(new Error("File not found"));
 
       resolve(path.join(DIR, file));
     });
 
     setTimeout(() => {
-      proc.kill("SIGKILL");
-      reject(new Error("TIMEOUT"));
+      if (!done) {
+        proc.kill("SIGKILL");
+        reject(new Error("TIMEOUT"));
+      }
     }, 5 * 60 * 1000);
   });
 }
@@ -152,7 +145,7 @@ bot.start((ctx) => {
   ctx.session = {};
 
   ctx.reply(
-    "🎬 V9 PRO MEDIA BOT",
+    "🎬 V10 PRO MEDIA BOT",
     Markup.inlineKeyboard([
       [
         Markup.button.callback("🎬 Kino", "movie"),
@@ -165,14 +158,12 @@ bot.start((ctx) => {
 //================ MODE =================
 bot.action("movie", (ctx) => {
   ctx.session.mode = "movie";
-  ctx.session.flow = "search";
   ctx.answerCbQuery();
   ctx.reply("🎬 Kino nomini yozing:");
 });
 
 bot.action("music", (ctx) => {
   ctx.session.mode = "music";
-  ctx.session.flow = "search";
   ctx.answerCbQuery();
   ctx.reply("🎵 Qo‘shiq nomini yozing:");
 });
@@ -194,13 +185,38 @@ async function search(ctx, q) {
   );
 }
 
-//================ TEXT HANDLER (FIXED LOGIC) =================
+//================ TEXT =================
 bot.on("text", async (ctx) => {
   const text = ctx.message.text;
 
-  // 🔗 LINK ONLY MODE
+  if (!ctx.session.mode)
+    return ctx.reply("Avval Kino yoki Musiqa tanlang");
+
+  const query =
+    ctx.session.mode === "movie" ? text + " trailer" : text;
+
+  await search(ctx, query);
+});
+
+//================ SELECT =================
+bot.action(/sel_(\d+)/, async (ctx) => {
+  await ctx.answerCbQuery();
+
+  const v = ctx.session.list?.[ctx.match[1]];
+  if (!v) return;
+
+  const url = `https://youtube.com/watch?v=${v.videoId}`;
+
+  const type = ctx.session.mode === "music" ? "audio" : "video";
+
+  addJob({ ctx, url, type });
+});
+
+//================ LINK SUPPORT =================
+bot.on("text", async (ctx) => {
+  const text = ctx.message.text;
+
   if (/https?:\/\//.test(text)) {
-    ctx.session.mode = "link";
     ctx.session.link = text;
 
     return ctx.reply(
@@ -213,47 +229,8 @@ bot.on("text", async (ctx) => {
       ])
     );
   }
-
-  // 🎬 MOVIE / 🎵 MUSIC SEARCH
-  if (!ctx.session.mode)
-    return ctx.reply("Avval Kino yoki Musiqa tanlang");
-
-  const q =
-    ctx.session.mode === "movie"
-      ? text + " trailer"
-      : text;
-
-  await search(ctx, q);
 });
 
-//================ SELECT =================
-bot.action(/sel_(\d+)/, async (ctx) => {
-  ctx.answerCbQuery();
-
-  const v = ctx.session.list?.[ctx.match[1]];
-  if (!v) return;
-
-  const url = `https://youtube.com/watch?v=${v.videoId}`;
-
-  // 🔥 STRICT RULE (NO FORMAT HERE)
-  if (ctx.session.mode === "movie") {
-    return addJob({
-      ctx,
-      url,
-      type: "video"
-    });
-  }
-
-  if (ctx.session.mode === "music") {
-    return addJob({
-      ctx,
-      url,
-      type: "audio"
-    });
-  }
-});
-
-//================ LINK DOWNLOAD =================
 bot.action("lvid", (ctx) => {
   if (!ctx.session.link) return;
 
@@ -276,7 +253,7 @@ bot.action("laud", (ctx) => {
 
 //================ LAUNCH =================
 bot.launch();
-console.log("🚀 V9 PRO LEVEL BOT READY");
+console.log("🚀 V10 PRO READY");
 
 process.once("SIGINT", () => bot.stop("SIGINT"));
 process.once("SIGTERM", () => bot.stop("SIGTERM"));
