@@ -9,8 +9,6 @@ RUN apt-get update && apt-get install -y \
     && yt-dlp --version \
     && rm -rf /var/lib/apt/lists/*
 
-    RUN which yt-dlp && yt-dlp --version
-
 WORKDIR /app
 
 COPY package*.json ./
