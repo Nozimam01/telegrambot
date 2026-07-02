@@ -45,10 +45,9 @@ async function worker() {
     const msg = await job.ctx.reply("⏳ Fayl yuklab olinmoqda va tayyorlanyapti, iltimos kuting...").catch(() => null);
 
     try {
-      // Fayl nomini chiroyli qilish uchun tozalaymiz (maxsus belgilarni olib tashlaymiz)
       const cleanTitle = (job.title || "media").replace(/[/\\?%*:|"<>\s]+/g, "_").slice(0, 60);
       const fileId = crypto.randomUUID().slice(0, 8);
-      const safeFileName = `${cleanTitle}_${fileId}`; // Bir xil nomli fayllar aralashib ketmasligi uchun oxiriga qisqa ID
+      const safeFileName = `${cleanTitle}_${fileId}`;
 
       const file = await download(job.url, job.type, safeFileName);
 
@@ -92,7 +91,6 @@ async function worker() {
 // ================= OPTIMIZED DOWNLOAD WITH 2GB LIMIT & REAL NAME =================
 function download(url, type, fileName) {
   return new Promise((resolve, reject) => {
-    // Endi fayl crypto ID bilan emas, qo'shiq/video nomi bilan saqlanadi
     const out = path.join(DIR, `${fileName}.%(ext)s`);
 
     const commonArgs = [
@@ -148,7 +146,6 @@ function download(url, type, fileName) {
 
       if (code !== 0) return reject(new Error(`yt-dlp failed with code ${code}`));
 
-      // Papkadan aynan shu fayl nomi bilan boshlanadigan faylni qidiramiz
       const file = fs.readdirSync(DIR).find(f => f.includes(fileName));
       if (!file) return reject(new Error("File not found"));
 
@@ -191,13 +188,14 @@ async function search(ctx, q) {
     const videos = r.videos.slice(0, 8);
     if (!videos.length) return ctx.reply("Hech narsa topilmadi 😕");
 
-    ctx.session.list = videos;
+    // DIQQAT: Har bir tugmaga format turi (m-music/v-video) va YouTube ID'sini to'g'ridan-to'g'ri biriktiramiz
+    const typeKey = ctx.session.mode === "music" ? "m" : "v";
 
     return ctx.reply(
       "📋 Natijalar:",
       Markup.inlineKeyboard(
-        videos.map((v, i) => [
-          Markup.button.callback(v.title.slice(0, 35), `sel_${i}`)
+        videos.map((v) => [
+          Markup.button.callback(v.title.slice(0, 35), `dl_${typeKey}_${v.videoId}`)
         ])
       )
     );
@@ -230,26 +228,29 @@ bot.on("text", async (ctx) => {
   await search(ctx, q);
 });
 
-// ================= SELECT =================
-bot.action(/sel_(\d+)/, async (ctx) => {
+// ================= SELECT & DOWNLOAD (Sessiyasiz xavfsiz tizim) =================
+bot.action(/dl_(m|v)_(.+)/, async (ctx) => {
   await ctx.answerCbQuery();
-  const v = ctx.session.list?.[ctx.match[1]];
-  if (!v) return ctx.reply("Ma'lumot topilmadi, qaytadan urinib ko'ring.");
+  
+  const typeFlag = ctx.match[1]; // 'm' yoki 'v'
+  const videoId = ctx.match[2];  // YouTube Video ID
+  
+  const url = `https://youtube.com/watch?v=${videoId}`;
+  const downloadType = typeFlag === "m" ? "audio" : "video";
 
-  const url = `https://youtube.com/watch?v=${v.videoId}`;
+  // Sarlavha uchun vaqtinchalik video ID ishlatiladi, yt-dlp avtomat aslini yuklaydi
   addJob({
     ctx,
     url,
-    type: ctx.session.mode === "music" ? "audio" : "video",
-    title: v.title,
-    author: v.author?.name
+    type: downloadType,
+    title: `YouTube_${videoId}`,
+    author: "YouTube"
   });
 });
 
 // ================= LINK =================
 bot.action("link_video", (ctx) => {
   ctx.answerCbQuery();
-  // Havola (link) yuborilganda ham sarlavha chiroyli chiqishi uchun default nom beramiz
   addJob({ ctx, url: ctx.session.link, type: "video", title: "Video_fayl" });
 });
 
