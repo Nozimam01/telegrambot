@@ -27,7 +27,6 @@ bot.use((ctx, next) => {
 const DIR = "/tmp";
 if (!fs.existsSync(DIR)) fs.mkdirSync(DIR, { recursive: true });
 
-// Serverda yt-dlp yo'qligi muammosini hal qilish (Avtomat yuklash)
 const YTDLP_PATH = path.join(DIR, "yt-dlp");
 function initYtdlp() {
   try {
@@ -39,7 +38,7 @@ function initYtdlp() {
     console.error("❌ yt-dlp yuklashda xatolik:", err.message);
   }
 }
-// Bot yonganda yt-dlp ni eng oxirgi versiyasini yuklab oladi
+// Bot ishga tushganda yt-dlp ning eng oxirgi versiyasini yuklab oladi
 initYtdlp();
 
 // ================= JOB CONTROL =================
@@ -104,7 +103,6 @@ async function worker() {
 // ================= DOWNLOAD FUNCTION =================
 function download(url, type, fileName) {
   return new Promise((resolve, reject) => {
-    // Agar dastlabki yuklashda xato bo'lsa qayta tekshiramiz
     if (!fs.existsSync(YTDLP_PATH)) {
       initYtdlp();
     }
@@ -128,12 +126,10 @@ function download(url, type, fileName) {
     if (type === "audio") {
       specificArgs = ["-x", "--audio-format", "mp3", "--audio-quality", "5"];
     } else {
-      // Eng yengil va xatosiz format (Render/Railway uchun ideal)
       specificArgs = ["-f", "worst[ext=mp4]/b[ext=mp4]"];
     }
 
     const args = [...specificArgs, ...commonArgs];
-    // Tizimdagi yt-dlp emas, biz yuklagan (/tmp/yt-dlp) ishga tushadi
     const proc = spawn(YTDLP_PATH, args);
     
     let killed = false;
@@ -166,11 +162,11 @@ function download(url, type, fileName) {
       if (isTooLarge) return reject(new Error("TOO_LARGE"));
 
       if (code !== 0) {
-        return reject(new Error(`yt-dlp xatosi (Kod: ${code}). Terminal: ${stderrOutput.slice(0, 100)}`));
+        return reject(new Error(`yt-dlp xatosi (Kod: ${code}).`));
       }
 
       const file = fs.readdirSync(DIR).find(f => f.includes(fileName));
-      if (!file) return reject(new Error("Fayl topilmadi (Yuklash yakunlanmadi)"));
+      if (!file) return reject(new Error("Fayl topilmadi"));
 
       resolve(path.join(DIR, file));
     });
@@ -270,7 +266,11 @@ bot.action("link_audio", (ctx) => {
   addJob({ ctx, url: ctx.session.link, type: "audio", title: "Audio_fayl" });
 });
 
-bot.launch().then(() => console.log("🔥 V13 PRO STABLE READY"));
+// ================= SAFE LAUNCH =================
+// dropPendingUpdates konflikt (409 Conflict) va eski ochoratlarni tozalaydi
+bot.launch({ allowedUpdates: [], dropPendingUpdates: true })
+  .then(() => console.log("🔥 V13 PRO STABLE READY"))
+  .catch((err) => console.error("❌ Botni ishga tushirishda xatolik:", err.message));
 
 process.once("SIGINT", () => bot.stop("SIGINT"));
 process.once("SIGTERM", () => bot.stop("SIGTERM"));
