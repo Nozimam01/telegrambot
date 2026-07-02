@@ -445,24 +445,21 @@ bot.action("download_audio", async (ctx) => {
 
 
 
-const { execSync } = require("child_process");
+(async () => {
+    try {
+        await bot.telegram.deleteWebhook({
+            drop_pending_updates: true,
+        });
 
-try {
-    console.log("YT-DLP PATH:", execSync("which yt-dlp").toString());
-    console.log("YT-DLP VERSION:", execSync("yt-dlp --version").toString());
-} catch (e) {
-    console.error("YT-DLP NOT FOUND", e);
-}
+        await bot.launch({
+            dropPendingUpdates: true,
+        });
 
-// ================= LAUNCH =================
-
-bot.launch({
-    dropPendingUpdates: true
-});
-
-console.log("🚀 BOT FULLY RUNNING");
-
-// ================= STOP =================
+        console.log("🚀 BOT FULLY RUNNING");
+    } catch (err) {
+        console.error("Launch error:", err);
+    }
+})();
 
 process.once("SIGINT", () => bot.stop("SIGINT"));
 process.once("SIGTERM", () => bot.stop("SIGTERM"));
