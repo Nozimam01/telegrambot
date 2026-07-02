@@ -5,7 +5,7 @@ const express = require("express");
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
-const { spawn } = require("child_process");
+const { spawn, execSync } = require("child_process");
 const yts = require("yt-search");
 
 // ================= EXPRESS =================
@@ -23,15 +23,29 @@ bot.use((ctx, next) => {
   return next();
 });
 
-// ================= TEMP =================
+// ================= TEMP & BINARIES =================
 const DIR = "/tmp";
 if (!fs.existsSync(DIR)) fs.mkdirSync(DIR, { recursive: true });
+
+// Serverda yt-dlp yo'qligi muammosini hal qilish (Avtomat yuklash)
+const YTDLP_PATH = path.join(DIR, "yt-dlp");
+function initYtdlp() {
+  try {
+    console.log("🔄 yt-dlp tekshirilmoqda...");
+    execSync(`curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o ${YTDLP_PATH}`);
+    execSync(`chmod a+rx ${YTDLP_PATH}`);
+    console.log("✅ yt-dlp muvaffaqiyatli o'rnatildi va tayyor!");
+  } catch (err) {
+    console.error("❌ yt-dlp yuklashda xatolik:", err.message);
+  }
+}
+// Bot yonganda yt-dlp ni eng oxirgi versiyasini yuklab oladi
+initYtdlp();
 
 // ================= JOB CONTROL =================
 const queue = [];
 let running = false;
 
-// ================= QUEUE =================
 function addJob(job) {
   queue.push(job);
   if (!running) worker();
@@ -42,12 +56,11 @@ async function worker() {
 
   while (queue.length) {
     const job = queue.shift();
-    const msg = await job.ctx.reply("⏳ Fayl yuklab olinmoqda va tayyorlanyapti, iltimos kuting...").catch(() => null);
+    const msg = await job.ctx.reply("⏳ Fayl qidirilmoqda va yuklanmoqda, kuting...").catch(() => null);
 
     try {
-      const cleanTitle = (job.title || "media").replace(/[/\\?%*:|"<>\s]+/g, "_").slice(0, 60);
       const fileId = crypto.randomUUID().slice(0, 8);
-      const safeFileName = `${cleanTitle}_${fileId}`;
+      const safeFileName = `media_${fileId}`;
 
       const file = await download(job.url, job.type, safeFileName);
 
@@ -59,7 +72,7 @@ async function worker() {
         await job.ctx.replyWithAudio({
           source: file,
           title: job.title || "Audio",
-          performer: job.author || "Unknown"
+          performer: "V13 Downloader"
         });
       } else {
         await job.ctx.replyWithVideo({
@@ -71,13 +84,13 @@ async function worker() {
       if (fs.existsSync(file)) fs.unlinkSync(file);
       if (msg) await job.ctx.deleteMessage(msg.message_id).catch(() => {});
     } catch (e) {
-      console.log("DOWNLOAD ERROR:", e.message);
+      console.log("DOWNLOAD ERROR DETAILS:", e);
       
-      let errorText = "❌ Yuklab bo'lmadi yoki xatolik yuz berdi.";
+      let errorText = `❌ Yuklab bo'lmadi. Sababi: ${e.message}`;
       if (e.message === "TOO_LARGE") {
         errorText = "⚠️ Fayl hajmi juda katta! Maksimal limit: 2 GB.";
       } else if (e.message === "TIMEOUT") {
-        errorText = "❌ Kutish vaqti tugadi (Timeout). Server yuklamani yakunlay olmadi.";
+        errorText = "❌ Kutish vaqti tugadi (Timeout). Server juda sekin.";
       }
 
       job.ctx.reply(errorText);
@@ -88,17 +101,22 @@ async function worker() {
   running = false;
 }
 
-// ================= OPTIMIZED DOWNLOAD WITH 2GB LIMIT & REAL NAME =================
+// ================= DOWNLOAD FUNCTION =================
 function download(url, type, fileName) {
   return new Promise((resolve, reject) => {
+    // Agar dastlabki yuklashda xato bo'lsa qayta tekshiramiz
+    if (!fs.existsSync(YTDLP_PATH)) {
+      initYtdlp();
+    }
+
     const out = path.join(DIR, `${fileName}.%(ext)s`);
 
     const commonArgs = [
       "--no-playlist",
       "--no-warnings",
       "--quiet",
-      "--socket-timeout", "20",
-      "--retries", "3",
+      "--socket-timeout", "30",
+      "--retries", "5",
       "--fragment-retries", "5",
       "--max-filesize", "2G", 
       "--extractor-args", "youtube:player_client=android,web", 
@@ -110,16 +128,21 @@ function download(url, type, fileName) {
     if (type === "audio") {
       specificArgs = ["-x", "--audio-format", "mp3", "--audio-quality", "5"];
     } else {
-      specificArgs = ["-f", "bv[height<=480][ext=mp4]+ba[ext=m4a]/b[ext=mp4]"];
+      // Eng yengil va xatosiz format (Render/Railway uchun ideal)
+      specificArgs = ["-f", "worst[ext=mp4]/b[ext=mp4]"];
     }
 
-    const args = ["yt-dlp", ...specificArgs, ...commonArgs];
-    const proc = spawn(args[0], args.slice(1));
+    const args = [...specificArgs, ...commonArgs];
+    // Tizimdagi yt-dlp emas, biz yuklagan (/tmp/yt-dlp) ishga tushadi
+    const proc = spawn(YTDLP_PATH, args);
+    
     let killed = false;
     let isTooLarge = false;
+    let stderrOutput = "";
 
     proc.stderr.on("data", (d) => {
       const s = d.toString();
+      stderrOutput += s;
       if (s.includes("File is larger than max-filesize")) {
         isTooLarge = true;
       }
@@ -140,21 +163,21 @@ function download(url, type, fileName) {
       clearTimeout(timer);
       if (killed) return;
       
-      if (isTooLarge) {
-        return reject(new Error("TOO_LARGE"));
+      if (isTooLarge) return reject(new Error("TOO_LARGE"));
+
+      if (code !== 0) {
+        return reject(new Error(`yt-dlp xatosi (Kod: ${code}). Terminal: ${stderrOutput.slice(0, 100)}`));
       }
 
-      if (code !== 0) return reject(new Error(`yt-dlp failed with code ${code}`));
-
       const file = fs.readdirSync(DIR).find(f => f.includes(fileName));
-      if (!file) return reject(new Error("File not found"));
+      if (!file) return reject(new Error("Fayl topilmadi (Yuklash yakunlanmadi)"));
 
       resolve(path.join(DIR, file));
     });
   });
 }
 
-// ================= START =================
+// ================= BOT COMMANDS =================
 bot.start((ctx) => {
   ctx.session = {};
   ctx.reply(
@@ -168,11 +191,10 @@ bot.start((ctx) => {
   );
 });
 
-// ================= MODE =================
 bot.action("movie", (ctx) => {
   ctx.session.mode = "movie";
   ctx.answerCbQuery();
-  ctx.reply("🎬 Kino nomini yozing (Sizga uning trailerini topib beraman):");
+  ctx.reply("🎬 Kino nomini yozing:");
 });
 
 bot.action("music", (ctx) => {
@@ -181,14 +203,12 @@ bot.action("music", (ctx) => {
   ctx.reply("🎵 Qo‘shiq nomini yozing:");
 });
 
-// ================= SEARCH =================
 async function search(ctx, q) {
   try {
     const r = await yts(q);
     const videos = r.videos.slice(0, 8);
     if (!videos.length) return ctx.reply("Hech narsa topilmadi 😕");
 
-    // DIQQAT: Har bir tugmaga format turi (m-music/v-video) va YouTube ID'sini to'g'ridan-to'g'ri biriktiramiz
     const typeKey = ctx.session.mode === "music" ? "m" : "v";
 
     return ctx.reply(
@@ -204,7 +224,6 @@ async function search(ctx, q) {
   }
 }
 
-// ================= TEXT =================
 bot.on("text", async (ctx) => {
   const text = ctx.message.text;
 
@@ -221,34 +240,26 @@ bot.on("text", async (ctx) => {
     );
   }
 
-  if (!ctx.session.mode)
-    return ctx.reply("Avval Kino yoki Musiqa tanlang");
+  if (!ctx.session.mode) return ctx.reply("Avval Kino yoki Musiqa tanlang");
 
   const q = ctx.session.mode === "movie" ? text + " trailer" : text;
   await search(ctx, q);
 });
 
-// ================= SELECT & DOWNLOAD (Sessiyasiz xavfsiz tizim) =================
 bot.action(/dl_(m|v)_(.+)/, async (ctx) => {
   await ctx.answerCbQuery();
-  
-  const typeFlag = ctx.match[1]; // 'm' yoki 'v'
-  const videoId = ctx.match[2];  // YouTube Video ID
+  const typeFlag = ctx.match[1]; 
+  const videoId = ctx.match[2];  
   
   const url = `https://youtube.com/watch?v=${videoId}`;
-  const downloadType = typeFlag === "m" ? "audio" : "video";
-
-  // Sarlavha uchun vaqtinchalik video ID ishlatiladi, yt-dlp avtomat aslini yuklaydi
   addJob({
     ctx,
     url,
-    type: downloadType,
-    title: `YouTube_${videoId}`,
-    author: "YouTube"
+    type: typeFlag === "m" ? "audio" : "video",
+    title: `YouTube_${videoId}`
   });
 });
 
-// ================= LINK =================
 bot.action("link_video", (ctx) => {
   ctx.answerCbQuery();
   addJob({ ctx, url: ctx.session.link, type: "video", title: "Video_fayl" });
@@ -259,7 +270,6 @@ bot.action("link_audio", (ctx) => {
   addJob({ ctx, url: ctx.session.link, type: "audio", title: "Audio_fayl" });
 });
 
-// ================= LAUNCH =================
 bot.launch().then(() => console.log("🔥 V13 PRO STABLE READY"));
 
 process.once("SIGINT", () => bot.stop("SIGINT"));
