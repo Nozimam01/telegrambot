@@ -5,15 +5,17 @@ const express = require("express");
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
-const { execFile } = require("child_process");
+const { spawn } = require("child_process");
 const yts = require("yt-search");
 
+//================ EXPRESS =================
 const app = express();
-app.get("/", (req, res) => res.send("V11 PRO 🚀"));
+app.get("/", (req, res) => res.send("V11 PRO BOT 🚀"));
 
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => console.log("Server:", PORT));
 
+//================ BOT =================
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
 bot.use(session());
@@ -22,140 +24,155 @@ bot.use((ctx, next) => {
   return next();
 });
 
+//================ TMP =================
 const DIR = "/tmp";
 if (!fs.existsSync(DIR)) fs.mkdirSync(DIR, { recursive: true });
 
-/* ================= QUEUE ================= */
+//================ QUEUE + JOBS =================
 const queue = [];
 let running = false;
-let currentProc = null;
+const jobs = new Map();
 
-/* ================= CANCEL ================= */
-function cancelCurrent() {
-  if (currentProc) {
-    currentProc.kill("SIGKILL");
-    currentProc = null;
-  }
-}
+//================ UTIL =================
+const safe = (t = "") => t.replace(/[\u0000-\u001F]/g, "").slice(0, 80);
 
-/* ================= JOB ================= */
+//================ QUEUE ENGINE =================
 function addJob(job) {
-  queue.push(job);
+  const id = crypto.randomUUID();
+  job.id = id;
+  jobs.set(id, job);
+
+  queue.push(id);
   if (!running) worker();
+
+  return id;
 }
 
 async function worker() {
   running = true;
 
   while (queue.length) {
-    const job = queue.shift();
+    const id = queue.shift();
+    const job = jobs.get(id);
+    if (!job || job.cancelled) continue;
 
-    const msg = await job.ctx.reply(
-      "⏳ Yuklanmoqda...",
-      Markup.inlineKeyboard([
-        [Markup.button.callback("❌ Cancel", "cancel")]
-      ])
-    );
-
-    try {
-      const file = await download(job.url, job.type, (p, speed) => {
-        job.ctx.telegram.editMessageText(
-          job.ctx.chat.id,
-          msg.message_id,
-          null,
-          `📊 ${p}% | ⚡ ${speed}`
-        ).catch(() => {});
-      });
-
-      if (job.type === "audio") {
-        await job.ctx.replyWithAudio({ source: file });
-      } else {
-        await job.ctx.replyWithVideo({ source: file });
-      }
-
-      fs.unlinkSync(file);
-      await job.ctx.deleteMessage(msg.message_id).catch(() => {});
-    } catch (e) {
-      console.log(e.message);
-      job.ctx.reply("❌ Error / timeout");
-    }
+    await runJob(job);
+    jobs.delete(id);
   }
 
   running = false;
 }
 
-/* ================= DOWNLOAD ================= */
-function download(url, type, onProgress) {
+//================ DOWNLOAD (PROGRESS + SPEED) =================
+function download(job) {
   return new Promise((resolve, reject) => {
-
     const id = crypto.randomUUID();
     const out = path.join(DIR, `${id}.%(ext)s`);
 
     const args =
-      type === "audio"
+      job.type === "audio"
         ? [
+            "--no-update",
             "--no-playlist",
             "--newline",
-            "--progress",
             "-x",
             "--audio-format",
             "mp3",
             "-o",
             out,
-            url
+            job.url
           ]
         : [
+            "--no-update",
             "--no-playlist",
             "--newline",
-            "--progress",
             "-f",
             "bv*+ba/b",
             "--merge-output-format",
             "mp4",
             "-o",
             out,
-            url
+            job.url
           ];
 
-    const proc = execFile("yt-dlp", args);
-    currentProc = proc;
+    const proc = spawn("yt-dlp", args);
 
-    let progress = "0";
+    job.proc = proc;
 
-    proc.stdout.on("data", (d) => {
-      const text = d.toString();
+    let lastMsg = 0;
 
-      const p = text.match(/(\d{1,3}\.\d)%/);
-      const s = text.match(/at\s+([\d\.]+\w+\/s)/i);
+    proc.stdout.on("data", async (data) => {
+      const text = data.toString();
 
-      if (p) progress = p[1];
-      if (onProgress) onProgress(progress, s ? s[1] : "...");
+      // progress %
+      const percent = text.match(/(\d{1,3}\.\d|\d{1,3})%/);
+      const speed = text.match(/at\s+([0-9.]+\w+\/s)/);
+
+      const now = Date.now();
+
+      if (percent && now - lastMsg > 2000) {
+        lastMsg = now;
+
+        try {
+          await job.ctx.telegram.editMessageText(
+            job.chatId,
+            job.msgId,
+            undefined,
+            `📥 Yuklanmoqda...\n\n📊 ${percent[0]}\n🚀 ${speed?.[1] || "..."}`,
+            job.cancelBtn
+          );
+        } catch {}
+      }
     });
 
     proc.on("error", reject);
 
-    proc.on("exit", (code) => {
-      currentProc = null;
-
+    proc.on("close", (code) => {
+      if (job.cancelled) return reject("CANCELLED");
       if (code !== 0) return reject(new Error("yt-dlp error"));
 
-      const file = fs.readdirSync(DIR)
-        .map(f => path.join(DIR, f))
-        .sort((a, b) => fs.statSync(b).mtime - fs.statSync(a).mtime)[0];
-
+      const file = fs.readdirSync(DIR).find(f => f.includes(id));
       if (!file) return reject(new Error("file not found"));
 
-      resolve(file);
+      resolve(path.join(DIR, file));
     });
-
-    setTimeout(() => {
-      proc.kill("SIGKILL");
-      reject(new Error("timeout"));
-    }, 10 * 60 * 1000);
   });
 }
 
-/* ================= START ================= */
+//================ RUN JOB =================
+async function runJob(job) {
+  const msg = await job.ctx.telegram.sendMessage(
+    job.chatId,
+    "⏳ Yuklanmoqda...",
+    job.cancelBtn
+  );
+
+  job.msgId = msg.message_id;
+
+  try {
+    const file = await download(job);
+
+    if (job.type === "audio") {
+      await job.ctx.telegram.sendAudio(job.chatId, {
+        source: file,
+        title: job.title || "Audio"
+      });
+    } else {
+      await job.ctx.telegram.sendVideo(job.chatId, {
+        source: file,
+        caption: job.title || "Video"
+      });
+    }
+
+    fs.unlinkSync(file);
+
+    await job.ctx.telegram.deleteMessage(job.chatId, msg.message_id).catch(() => {});
+  } catch (e) {
+    await job.ctx.telegram.sendMessage(job.chatId, "❌ Error / Cancelled");
+  }
+}
+
+//================ START =================
 bot.start((ctx) => {
   ctx.session = {};
 
@@ -170,23 +187,23 @@ bot.start((ctx) => {
   );
 });
 
-/* ================= MODE ================= */
-bot.action("movie", (ctx) => {
+//================ MODE =================
+bot.action("movie", async (ctx) => {
   ctx.session.mode = "movie";
-  ctx.answerCbQuery();
+  await ctx.answerCbQuery();
   ctx.reply("🎬 Kino nomi:");
 });
 
-bot.action("music", (ctx) => {
+bot.action("music", async (ctx) => {
   ctx.session.mode = "music";
-  ctx.answerCbQuery();
-  ctx.reply("🎵 Qo‘shiq nomi:");
+  await ctx.answerCbQuery();
+  ctx.reply("🎵 Qo'shiq nomi:");
 });
 
-/* ================= SEARCH ================= */
+//================ SEARCH =================
 async function search(ctx, q) {
   const r = await yts(q);
-  const videos = r.videos.slice(0, 10);
+  const videos = r.videos.slice(0, 8);
 
   ctx.session.list = videos;
 
@@ -200,44 +217,7 @@ async function search(ctx, q) {
   );
 }
 
-/* ================= TEXT ================= */
-bot.on("text", async (ctx) => {
-  const text = ctx.message.text;
-
-  if (!ctx.session.mode)
-    return ctx.reply("Avval Kino yoki Musiqa tanlang");
-
-  const q = ctx.session.mode === "movie"
-    ? text + " trailer"
-    : text;
-
-  await search(ctx, q);
-});
-
-/* ================= SELECT ================= */
-bot.action(/sel_(\d+)/, async (ctx) => {
-  await ctx.answerCbQuery();
-
-  const v = ctx.session.list?.[ctx.match[1]];
-  if (!v) return;
-
-  const url = `https://youtube.com/watch?v=${v.videoId}`;
-
-  addJob({
-    ctx,
-    url,
-    type: ctx.session.mode === "music" ? "audio" : "video"
-  });
-});
-
-/* ================= CANCEL ================= */
-bot.action("cancel", (ctx) => {
-  cancelCurrent();
-  ctx.answerCbQuery("Cancelled");
-  ctx.reply("❌ Download cancelled");
-});
-
-/* ================= LINK SUPPORT ================= */
+//================ TEXT =================
 bot.on("text", async (ctx) => {
   const text = ctx.message.text;
 
@@ -249,21 +229,79 @@ bot.on("text", async (ctx) => {
       Markup.inlineKeyboard([
         [
           Markup.button.callback("🎥 Video", "lvid"),
-          Markup.button.callback("🎵 MP3", "laud")
+          Markup.button.callback("🎵 MP3", "laud"),
+          Markup.button.callback("❌ Cancel", "cancel")
         ]
       ])
     );
   }
+
+  if (!ctx.session.mode) return;
+
+  const q = ctx.session.mode === "movie" ? text + " trailer" : text;
+  await search(ctx, q);
 });
 
-bot.action("lvid", (ctx) => {
-  addJob({ ctx, url: ctx.session.link, type: "video" });
+//================ SELECT =================
+bot.action(/sel_(\d+)/, async (ctx) => {
+  await ctx.answerCbQuery();
+
+  const v = ctx.session.list?.[ctx.match[1]];
+  if (!v) return;
+
+  const url = `https://youtube.com/watch?v=${v.videoId}`;
+
+  const cancelBtn = Markup.inlineKeyboard([
+    [Markup.button.callback("❌ Cancel", `stop_${url}`)]
+  ]);
+
+  addJob({
+    ctx,
+    chatId: ctx.chat.id,
+    url,
+    type: ctx.session.mode === "music" ? "audio" : "video",
+    title: v.title,
+    cancelBtn
+  });
 });
 
-bot.action("laud", (ctx) => {
-  addJob({ ctx, url: ctx.session.link, type: "audio" });
+//================ LINK =================
+bot.action("lvid", async (ctx) => {
+  addJob({
+    ctx,
+    chatId: ctx.chat.id,
+    url: ctx.session.link,
+    type: "video",
+    cancelBtn: Markup.inlineKeyboard([
+      [Markup.button.callback("❌ Cancel", "cancel_job")]
+    ])
+  });
 });
 
+bot.action("laud", async (ctx) => {
+  addJob({
+    ctx,
+    chatId: ctx.chat.id,
+    url: ctx.session.link,
+    type: "audio",
+    cancelBtn: Markup.inlineKeyboard([
+      [Markup.button.callback("❌ Cancel", "cancel_job")]
+    ])
+  });
+});
+
+//================ CANCEL =================
+bot.action(/stop_(.+)/, async (ctx) => {
+  const job = [...jobs.values()].find(j => j.url.includes(ctx.match[1]));
+  if (!job) return ctx.answerCbQuery("Topilmadi");
+
+  job.cancelled = true;
+  job.proc?.kill("SIGKILL");
+
+  await ctx.answerCbQuery("❌ Cancel qilindi");
+});
+
+//================ LAUNCH =================
 bot.launch();
 console.log("🚀 V11 PRO READY");
 
