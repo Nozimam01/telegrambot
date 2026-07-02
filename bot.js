@@ -10,7 +10,7 @@ const yts = require("yt-search");
 
 //================ EXPRESS =================
 const app = express();
-app.get("/", (req, res) => res.send("Bot Running 🚀"));
+app.get("/", (req, res) => res.send("V9 PRO BOT 🚀"));
 
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => console.log("Server:", PORT));
@@ -62,9 +62,9 @@ async function worker() {
       }
 
       fs.unlinkSync(file);
-      await job.ctx.telegram.deleteMessage(job.ctx.chat.id, msg.message_id).catch(()=>{});
+      await job.ctx.telegram.deleteMessage(job.ctx.chat.id, msg.message_id).catch(() => {});
     } catch (e) {
-      console.log(e.message);
+      console.log("ERROR:", e.message);
       job.ctx.telegram.sendMessage(job.ctx.chat.id, "❌ Xatolik");
     }
   }
@@ -72,7 +72,7 @@ async function worker() {
   running = false;
 }
 
-//================ DOWNLOAD =================
+//================ DOWNLOAD ENGINE =================
 function download(url, type = "video") {
   return new Promise((resolve, reject) => {
     const id = crypto.randomUUID();
@@ -117,7 +117,7 @@ bot.start((ctx) => {
   ctx.session = {};
 
   ctx.reply(
-    "🎬 Media Bot",
+    "🎬 V9 PRO MEDIA BOT",
     Markup.inlineKeyboard([
       [
         Markup.button.callback("🎬 Kino", "movie"),
@@ -128,16 +128,18 @@ bot.start((ctx) => {
 });
 
 //================ MODE =================
-bot.action("movie", async (ctx) => {
+bot.action("movie", (ctx) => {
   ctx.session.mode = "movie";
+  ctx.session.flow = "search";
   ctx.answerCbQuery();
-  ctx.reply("🎬 Kino nomi:");
+  ctx.reply("🎬 Kino nomini yozing:");
 });
 
-bot.action("music", async (ctx) => {
+bot.action("music", (ctx) => {
   ctx.session.mode = "music";
+  ctx.session.flow = "search";
   ctx.answerCbQuery();
-  ctx.reply("🎵 Qo'shiq nomi:");
+  ctx.reply("🎵 Qo‘shiq nomini yozing:");
 });
 
 //================ SEARCH =================
@@ -148,25 +150,26 @@ async function search(ctx, q) {
   ctx.session.list = videos;
 
   ctx.reply(
-    "📋 Natijalar",
+    "📋 Natijalar:",
     Markup.inlineKeyboard(
       videos.map((v, i) => [
-        Markup.button.callback(v.title.slice(0, 30), `sel_${i}`)
+        Markup.button.callback(v.title.slice(0, 35), `sel_${i}`)
       ])
     )
   );
 }
 
-//================ TEXT (ONLY ONE HANDLER) =================
+//================ TEXT HANDLER (FIXED LOGIC) =================
 bot.on("text", async (ctx) => {
   const text = ctx.message.text;
 
-  // LINK DETECT
+  // 🔗 LINK ONLY MODE
   if (/https?:\/\//.test(text)) {
+    ctx.session.mode = "link";
     ctx.session.link = text;
 
     return ctx.reply(
-      "Format tanlang",
+      "📥 Format tanlang:",
       Markup.inlineKeyboard([
         [
           Markup.button.callback("🎥 Video", "lvid"),
@@ -176,15 +179,16 @@ bot.on("text", async (ctx) => {
     );
   }
 
+  // 🎬 MOVIE / 🎵 MUSIC SEARCH
   if (!ctx.session.mode)
-    return ctx.reply("Avval Kino yoki Musiqa tanla");
+    return ctx.reply("Avval Kino yoki Musiqa tanlang");
 
-  const query =
+  const q =
     ctx.session.mode === "movie"
       ? text + " trailer"
       : text;
 
-  await search(ctx, query);
+  await search(ctx, q);
 });
 
 //================ SELECT =================
@@ -194,44 +198,30 @@ bot.action(/sel_(\d+)/, async (ctx) => {
   const v = ctx.session.list?.[ctx.match[1]];
   if (!v) return;
 
-  ctx.session.selected = v;
+  const url = `https://youtube.com/watch?v=${v.videoId}`;
 
-  ctx.reply(
-    "Format tanlang",
-    Markup.inlineKeyboard([
-      [
-        Markup.button.callback("🎥 Video", "vid"),
-        Markup.button.callback("🎵 MP3", "aud")
-      ]
-    ])
-  );
-});
+  // 🔥 STRICT RULE (NO FORMAT HERE)
+  if (ctx.session.mode === "movie") {
+    return addJob({
+      ctx,
+      url,
+      type: "video"
+    });
+  }
 
-//================ DOWNLOAD =================
-bot.action("vid", async (ctx) => {
-  const v = ctx.session.selected;
-  if (!v) return;
-
-  addJob({
-    ctx,
-    url: `https://youtube.com/watch?v=${v.videoId}`,
-    type: "video"
-  });
-});
-
-bot.action("aud", async (ctx) => {
-  const v = ctx.session.selected;
-  if (!v) return;
-
-  addJob({
-    ctx,
-    url: `https://youtube.com/watch?v=${v.videoId}`,
-    type: "audio"
-  });
+  if (ctx.session.mode === "music") {
+    return addJob({
+      ctx,
+      url,
+      type: "audio"
+    });
+  }
 });
 
 //================ LINK DOWNLOAD =================
 bot.action("lvid", (ctx) => {
+  if (!ctx.session.link) return;
+
   addJob({
     ctx,
     url: ctx.session.link,
@@ -240,6 +230,8 @@ bot.action("lvid", (ctx) => {
 });
 
 bot.action("laud", (ctx) => {
+  if (!ctx.session.link) return;
+
   addJob({
     ctx,
     url: ctx.session.link,
@@ -249,7 +241,7 @@ bot.action("laud", (ctx) => {
 
 //================ LAUNCH =================
 bot.launch();
-console.log("🚀 CLEAN PRO BOT RUNNING");
+console.log("🚀 V9 PRO LEVEL BOT READY");
 
 process.once("SIGINT", () => bot.stop("SIGINT"));
 process.once("SIGTERM", () => bot.stop("SIGTERM"));
