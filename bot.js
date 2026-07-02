@@ -10,9 +10,9 @@ const yts = require("yt-search");
 
 //================ EXPRESS =================
 const app = express();
-app.get("/", (req, res) => res.send("V10 PRO BOT 🚀"));
+app.get("/", (req, res) => res.send("V10 PRO FIXED 🚀"));
 
-const PORT = process.env.PORT || 10000;
+const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => console.log("Server:", PORT));
 
 //================ BOT =================
@@ -28,7 +28,7 @@ bot.use((ctx, next) => {
 const DIR = "/tmp";
 if (!fs.existsSync(DIR)) fs.mkdirSync(DIR, { recursive: true });
 
-//================ QUEUE =================
+//================ QUEUE (STABLE) =================
 const queue = [];
 let running = false;
 
@@ -40,75 +40,51 @@ function addJob(job) {
 async function worker() {
   running = true;
 
-  while (queue.length > 0) {
+  while (queue.length) {
     const job = queue.shift();
 
-    try {
-      const msg = await job.ctx.telegram.sendMessage(
-        job.ctx.chat.id,
-        "⏳ Yuklanmoqda..."
-      );
+    const msg = await job.ctx.reply("⏳ Yuklanmoqda...");
 
+    try {
       const file = await download(job.url, job.type);
 
       if (job.type === "audio") {
-        await job.ctx.telegram.sendAudio(job.ctx.chat.id, {
-          source: file
-        });
+        await job.ctx.replyWithAudio({ source: file });
       } else {
-        await job.ctx.telegram.sendDocument(job.ctx.chat.id, {
-          source: file
-        });
+        await job.ctx.replyWithVideo({ source: file });
       }
 
       fs.unlinkSync(file);
-
-      await job.ctx.telegram
-        .deleteMessage(job.ctx.chat.id, msg.message_id)
-        .catch(() => {});
+      await job.ctx.deleteMessage(msg.message_id).catch(() => {});
     } catch (e) {
       console.log("ERROR:", e.message);
-      job.ctx.telegram.sendMessage(job.ctx.chat.id, "❌ Xatolik / timeout");
+      job.ctx.reply("❌ Yuklab bo‘lmadi (yt-dlp error)");
     }
   }
 
   running = false;
 }
 
-//================ DOWNLOAD ENGINE =================
+//================ DOWNLOAD ENGINE (FIXED) =================
 function download(url, type = "video") {
   return new Promise((resolve, reject) => {
     const id = crypto.randomUUID();
-
     const out = path.join(DIR, `${id}.%(ext)s`);
+
+    const base = [
+      "--no-playlist",
+      "--no-warnings",
+      "--newline",
+      "--restrict-filenames",
+      "--no-update",
+      "--socket-timeout", "20",
+      "--retries", "2"
+    ];
 
     const args =
       type === "audio"
-        ? [
-            "--no-update",
-            "--no-warnings",
-            "--newline",
-            "--restrict-filenames",
-            "-x",
-            "--audio-format",
-            "mp3",
-            "-o",
-            out,
-            url
-          ]
-        : [
-            "--no-update",
-            "--no-warnings",
-            "--newline",
-            "--restrict-filenames",
-            "-f",
-            "bv*+ba/b",
-            "--merge-output-format",
-            "mp4",
-            "-o",
-            out,
-            url
-          ];
+        ? [...base, "-x", "--audio-format", "mp3", "-o", out, url]
+        : [...base, "-f", "bv*+ba/b", "--merge-output-format", "mp4", "-o", out, url];
 
     const proc = execFile("yt-dlp", args);
 
@@ -122,10 +98,9 @@ function download(url, type = "video") {
     proc.on("exit", (code) => {
       if (done) return;
 
-      if (code !== 0) return reject(new Error("yt-dlp error"));
+      if (code !== 0) return reject(new Error("yt-dlp failed"));
 
       const file = fs.readdirSync(DIR).find(f => f.includes(id));
-
       if (!file) return reject(new Error("File not found"));
 
       resolve(path.join(DIR, file));
@@ -145,7 +120,7 @@ bot.start((ctx) => {
   ctx.session = {};
 
   ctx.reply(
-    "🎬 V10 PRO MEDIA BOT",
+    "🎬 V10 PRO FIXED BOT",
     Markup.inlineKeyboard([
       [
         Markup.button.callback("🎬 Kino", "movie"),
@@ -185,17 +160,34 @@ async function search(ctx, q) {
   );
 }
 
-//================ TEXT =================
+//================ TEXT (FIXED - ONLY ONE HANDLER) =================
 bot.on("text", async (ctx) => {
   const text = ctx.message.text;
+
+  // 🔥 LINK ONLY MODE (IMPORTANT FIX)
+  if (/https?:\/\//.test(text)) {
+    ctx.session.link = text;
+
+    return ctx.reply(
+      "📥 Faqat link format:",
+      Markup.inlineKeyboard([
+        [
+          Markup.button.callback("🎥 Video", "lvid"),
+          Markup.button.callback("🎵 MP3", "laud")
+        ]
+      ])
+    );
+  }
 
   if (!ctx.session.mode)
     return ctx.reply("Avval Kino yoki Musiqa tanlang");
 
-  const query =
-    ctx.session.mode === "movie" ? text + " trailer" : text;
+  const q =
+    ctx.session.mode === "movie"
+      ? text + " trailer"
+      : text;
 
-  await search(ctx, query);
+  await search(ctx, q);
 });
 
 //================ SELECT =================
@@ -207,53 +199,26 @@ bot.action(/sel_(\d+)/, async (ctx) => {
 
   const url = `https://youtube.com/watch?v=${v.videoId}`;
 
+  // 🔥 IMPORTANT FIX:
   const type = ctx.session.mode === "music" ? "audio" : "video";
 
   addJob({ ctx, url, type });
 });
 
-//================ LINK SUPPORT =================
-bot.on("text", async (ctx) => {
-  const text = ctx.message.text;
-
-  if (/https?:\/\//.test(text)) {
-    ctx.session.link = text;
-
-    return ctx.reply(
-      "📥 Format tanlang:",
-      Markup.inlineKeyboard([
-        [
-          Markup.button.callback("🎥 Video", "lvid"),
-          Markup.button.callback("🎵 MP3", "laud")
-        ]
-      ])
-    );
-  }
-});
-
+//================ LINK DOWNLOAD =================
 bot.action("lvid", (ctx) => {
   if (!ctx.session.link) return;
-
-  addJob({
-    ctx,
-    url: ctx.session.link,
-    type: "video"
-  });
+  addJob({ ctx, url: ctx.session.link, type: "video" });
 });
 
 bot.action("laud", (ctx) => {
   if (!ctx.session.link) return;
-
-  addJob({
-    ctx,
-    url: ctx.session.link,
-    type: "audio"
-  });
+  addJob({ ctx, url: ctx.session.link, type: "audio" });
 });
 
 //================ LAUNCH =================
 bot.launch();
-console.log("🚀 V10 PRO READY");
+console.log("🚀 V10 PRO FIXED RUNNING");
 
 process.once("SIGINT", () => bot.stop("SIGINT"));
 process.once("SIGTERM", () => bot.stop("SIGTERM"));
