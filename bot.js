@@ -5,31 +5,35 @@ const express = require("express");
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
-const { spawn } = require("child_process");
+const { execFile } = require("child_process");
 const yts = require("yt-search");
 
-//================ EXPRESS =================
+// ================= EXPRESS =================
 const app = express();
-app.get("/", (req, res) => res.send("V11 CLEAN BOT 🚀"));
+app.get("/", (req, res) => res.send("V11 PRO BOT 🚀"));
 
-const PORT = process.env.PORT || 4000;
-app.listen(PORT, () => console.log("Server:", PORT));
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, () => console.log("PORT:", PORT));
 
-//================ BOT =================
+// ================= BOT =================
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
 bot.use(session());
 bot.use((ctx, next) => {
-  ctx.session = ctx.session || {};
+  ctx.session ||= {};
   return next();
 });
 
-//================ TEMP =================
+// ================= TEMP =================
 const DIR = "/tmp";
 if (!fs.existsSync(DIR)) fs.mkdirSync(DIR, { recursive: true });
 
-//================ DOWNLOAD (NON BLOCKING) =================
-function download(url, type) {
+// ================= SAFE =================
+const safe = (t = "") =>
+  t.replace(/[\u0000-\u001F]/g, "").substring(0, 80);
+
+// ================= DOWNLOAD =================
+function download(url, type = "video") {
   return new Promise((resolve, reject) => {
     const id = crypto.randomUUID();
     const out = path.join(DIR, `${id}.%(ext)s`);
@@ -37,9 +41,10 @@ function download(url, type) {
     const args =
       type === "audio"
         ? [
-            "--no-playlist",
+            "yt-dlp",
+            "--no-update",
             "--no-warnings",
-            "--newline",
+            "--restrict-filenames",
             "-x",
             "--audio-format",
             "mp3",
@@ -48,11 +53,12 @@ function download(url, type) {
             url
           ]
         : [
-            "--no-playlist",
+            "yt-dlp",
+            "--no-update",
             "--no-warnings",
-            "--newline",
+            "--restrict-filenames",
             "-f",
-            "best[height<=480]",
+            "bv*+ba/b",
             "--merge-output-format",
             "mp4",
             "-o",
@@ -60,27 +66,36 @@ function download(url, type) {
             url
           ];
 
-    const proc = spawn("yt-dlp", args);
+    const proc = execFile("yt-dlp", args);
+
+    let done = false;
 
     proc.on("error", reject);
 
-    proc.on("close", (code) => {
-      if (code !== 0) return reject(new Error("yt-dlp error"));
+    proc.on("exit", (code) => {
+      if (done) return;
+      if (code !== 0) return reject(new Error("yt-dlp failed"));
 
       const file = fs.readdirSync(DIR).find(f => f.includes(id));
       if (!file) return reject(new Error("file not found"));
 
       resolve(path.join(DIR, file));
     });
+
+    setTimeout(() => {
+      done = true;
+      proc.kill("SIGKILL");
+      reject(new Error("timeout"));
+    }, 5 * 60 * 1000);
   });
 }
 
-//================ START =================
+// ================= START =================
 bot.start((ctx) => {
   ctx.session = {};
 
   ctx.reply(
-    "🎬 V11 CLEAN BOT",
+    "🎬 V11 PRO MEDIA BOT",
     Markup.inlineKeyboard([
       [
         Markup.button.callback("🎬 Kino", "movie"),
@@ -90,42 +105,43 @@ bot.start((ctx) => {
   );
 });
 
-//================ MODE =================
+// ================= MODE =================
 bot.action("movie", async (ctx) => {
-  ctx.session.mode = "movie";
   await ctx.answerCbQuery();
-  ctx.reply("🎬 Kino nomini yoz:");
+  ctx.session.mode = "movie";
+  ctx.reply("🎬 Kino nomini yozing:");
 });
 
 bot.action("music", async (ctx) => {
-  ctx.session.mode = "music";
   await ctx.answerCbQuery();
-  ctx.reply("🎵 Qo‘shiq nomini yoz:");
+  ctx.session.mode = "music";
+  ctx.reply("🎵 Qo‘shiq nomini yozing:");
 });
 
-//================ SEARCH =================
+// ================= SEARCH =================
 async function search(ctx, q) {
   const r = await yts(q);
   const videos = r.videos.slice(0, 8);
 
   ctx.session.list = videos;
 
-  ctx.reply(
+  return ctx.reply(
     "📋 Natijalar:",
     Markup.inlineKeyboard(
       videos.map((v, i) => [
-        Markup.button.callback(v.title.slice(0, 35), `sel_${i}`)
+        Markup.button.callback(`${i + 1}. ${v.title.slice(0, 35)}`, `sel_${i}`)
       ])
     )
   );
 }
 
-//================ TEXT (ONLY ONE HANDLER) =================
+// ================= SINGLE TEXT HANDLER (FIXED) =================
 bot.on("text", async (ctx) => {
   const text = ctx.message.text;
 
   // LINK MODE
   if (/https?:\/\//.test(text)) {
+    ctx.session.mode = "link";
     ctx.session.link = text;
 
     return ctx.reply(
@@ -150,7 +166,7 @@ bot.on("text", async (ctx) => {
   await search(ctx, q);
 });
 
-//================ SELECT =================
+// ================= SELECT =================
 bot.action(/sel_(\d+)/, async (ctx) => {
   await ctx.answerCbQuery();
 
@@ -158,67 +174,58 @@ bot.action(/sel_(\d+)/, async (ctx) => {
   if (!v) return;
 
   const url = `https://youtube.com/watch?v=${v.videoId}`;
+
   const type = ctx.session.mode === "music" ? "audio" : "video";
 
-  const msg = await ctx.reply("⏳ Yuklanmoqda...");
+  await ctx.reply("⏳ Yuklanmoqda...");
 
-  try {
-    const file = await download(url, type);
+  const file = await download(url, type);
 
-    if (type === "audio") {
-      await ctx.replyWithAudio({ source: file, title: v.title });
-    } else {
-      await ctx.replyWithVideo({ source: file, caption: v.title });
-    }
-
-    fs.unlinkSync(file);
-    ctx.deleteMessage(msg.message_id).catch(() => {});
-  } catch (e) {
-    ctx.reply("❌ Yuklab bo‘lmadi (video og‘ir yoki timeout)");
+  if (type === "audio") {
+    await ctx.replyWithAudio({
+      source: file,
+      title: v.title,
+      performer: v.author?.name || "Unknown"
+    });
+  } else {
+    await ctx.replyWithVideo({ source: file, caption: v.title });
   }
+
+  fs.unlinkSync(file);
 });
 
-//================ LINK VIDEO =================
+// ================= LINK VIDEO =================
 bot.action("link_video", async (ctx) => {
+  await ctx.answerCbQuery();
+
   const url = ctx.session.link;
   if (!url) return;
 
-  const msg = await ctx.reply("⏳ Video yuklanmoqda...");
+  await ctx.reply("⏳ Yuklanmoqda...");
 
-  try {
-    const file = await download(url, "video");
+  const file = await download(url, "video");
 
-    await ctx.replyWithVideo({ source: file });
+  await ctx.replyWithVideo({ source: file });
 
-    fs.unlinkSync(file);
-    ctx.deleteMessage(msg.message_id).catch(() => {});
-  } catch {
-    ctx.reply("❌ Error");
-  }
+  fs.unlinkSync(file);
 });
 
-//================ LINK AUDIO =================
+// ================= LINK AUDIO =================
 bot.action("link_audio", async (ctx) => {
+  await ctx.answerCbQuery();
+
   const url = ctx.session.link;
   if (!url) return;
 
-  const msg = await ctx.reply("⏳ MP3 yuklanmoqda...");
+  await ctx.reply("⏳ MP3 tayyorlanmoqda...");
 
-  try {
-    const file = await download(url, "audio");
+  const file = await download(url, "audio");
 
-    await ctx.replyWithAudio({ source: file });
+  await ctx.replyWithAudio({ source: file });
 
-    fs.unlinkSync(file);
-    ctx.deleteMessage(msg.message_id).catch(() => {});
-  } catch {
-    ctx.reply("❌ Error");
-  }
+  fs.unlinkSync(file);
 });
 
-//================ LAUNCH =================
+// ================= LAUNCH =================
 bot.launch();
-console.log("🚀 V11 CLEAN READY");
-
-process.once("SIGINT", () => bot.stop("SIGINT"));
-process.once("SIGTERM", () => bot.stop("SIGTERM"));
+console.log("🚀 V11 PRO FIXED RUNNING");
