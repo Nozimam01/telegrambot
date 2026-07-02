@@ -5,12 +5,12 @@ const express = require("express");
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
-const { execFile } = require("child_process");
+const { spawn } = require("child_process");
 const yts = require("yt-search");
 
 //================ EXPRESS =================
 const app = express();
-app.get("/", (req, res) => res.send("V11 FIXED BOT 🚀"));
+app.get("/", (req, res) => res.send("V11 CLEAN BOT 🚀"));
 
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => console.log("Server:", PORT));
@@ -28,8 +28,8 @@ bot.use((ctx, next) => {
 const DIR = "/tmp";
 if (!fs.existsSync(DIR)) fs.mkdirSync(DIR, { recursive: true });
 
-//================ DOWNLOAD =================
-function download(url, type = "video") {
+//================ DOWNLOAD (NON BLOCKING) =================
+function download(url, type) {
   return new Promise((resolve, reject) => {
     const id = crypto.randomUUID();
     const out = path.join(DIR, `${id}.%(ext)s`);
@@ -60,15 +60,15 @@ function download(url, type = "video") {
             url
           ];
 
-    const proc = execFile("yt-dlp", args);
+    const proc = spawn("yt-dlp", args);
 
     proc.on("error", reject);
 
-    proc.on("exit", (code) => {
+    proc.on("close", (code) => {
       if (code !== 0) return reject(new Error("yt-dlp error"));
 
       const file = fs.readdirSync(DIR).find(f => f.includes(id));
-      if (!file) return reject(new Error("File not found"));
+      if (!file) return reject(new Error("file not found"));
 
       resolve(path.join(DIR, file));
     });
@@ -80,7 +80,7 @@ bot.start((ctx) => {
   ctx.session = {};
 
   ctx.reply(
-    "🎬 V11 FIXED BOT",
+    "🎬 V11 CLEAN BOT",
     Markup.inlineKeyboard([
       [
         Markup.button.callback("🎬 Kino", "movie"),
@@ -94,13 +94,13 @@ bot.start((ctx) => {
 bot.action("movie", async (ctx) => {
   ctx.session.mode = "movie";
   await ctx.answerCbQuery();
-  ctx.reply("🎬 Kino nomi:");
+  ctx.reply("🎬 Kino nomini yoz:");
 });
 
 bot.action("music", async (ctx) => {
   ctx.session.mode = "music";
   await ctx.answerCbQuery();
-  ctx.reply("🎵 Qo‘shiq nomi:");
+  ctx.reply("🎵 Qo‘shiq nomini yoz:");
 });
 
 //================ SEARCH =================
@@ -124,7 +124,7 @@ async function search(ctx, q) {
 bot.on("text", async (ctx) => {
   const text = ctx.message.text;
 
-  // LINK ONLY
+  // LINK MODE
   if (/https?:\/\//.test(text)) {
     ctx.session.link = text;
 
@@ -142,22 +142,12 @@ bot.on("text", async (ctx) => {
   if (!ctx.session.mode)
     return ctx.reply("Avval Kino yoki Musiqa tanlang");
 
-  const query =
+  const q =
     ctx.session.mode === "movie"
       ? text + " trailer"
       : text;
 
-  const r = await yts(query);
-  ctx.session.list = r.videos.slice(0, 8);
-
-  ctx.reply(
-    "📋 Natijalar:",
-    Markup.inlineKeyboard(
-      ctx.session.list.map((v, i) => [
-        Markup.button.callback(v.title.slice(0, 35), `sel_${i}`)
-      ])
-    )
-  );
+  await search(ctx, q);
 });
 
 //================ SELECT =================
@@ -168,7 +158,6 @@ bot.action(/sel_(\d+)/, async (ctx) => {
   if (!v) return;
 
   const url = `https://youtube.com/watch?v=${v.videoId}`;
-
   const type = ctx.session.mode === "music" ? "audio" : "video";
 
   const msg = await ctx.reply("⏳ Yuklanmoqda...");
@@ -185,7 +174,7 @@ bot.action(/sel_(\d+)/, async (ctx) => {
     fs.unlinkSync(file);
     ctx.deleteMessage(msg.message_id).catch(() => {});
   } catch (e) {
-    ctx.reply("❌ Yuklab bo‘lmadi");
+    ctx.reply("❌ Yuklab bo‘lmadi (video og‘ir yoki timeout)");
   }
 });
 
@@ -229,7 +218,7 @@ bot.action("link_audio", async (ctx) => {
 
 //================ LAUNCH =================
 bot.launch();
-console.log("🚀 V11 FIXED READY");
+console.log("🚀 V11 CLEAN READY");
 
 process.once("SIGINT", () => bot.stop("SIGINT"));
 process.once("SIGTERM", () => bot.stop("SIGTERM"));
