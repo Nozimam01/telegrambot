@@ -9,6 +9,7 @@ const os = require("os");
 const { execFile } = require("child_process");
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
+console.log("PID:", process.pid);
 
 // ================= EXPRESS =================
 const app = express();
