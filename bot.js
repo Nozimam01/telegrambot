@@ -30,7 +30,6 @@ if (!fs.existsSync(DIR)) fs.mkdirSync(DIR, { recursive: true });
 const YTDLP_PATH = path.join(DIR, "yt-dlp");
 function initYtdlp() {
   try {
-    // Har safar qayta yuklamaslik uchun tekshiramiz
     if (fs.existsSync(YTDLP_PATH)) {
       console.log("✅ yt-dlp allaqachon mavjud.");
       return;
@@ -62,10 +61,7 @@ async function worker() {
     const msg = await job.ctx.reply("⏳ Fayl yuklanmoqda, kuting...").catch(() => null);
 
     try {
-      // Sarlavhadan taqiqlangan belgilarni tozalaymiz
       const cleanTitle = (job.title || "Media").replace(/[\\/:*?"<>|]/g, " ").trim();
-      
-      // Fayl nomini "media_id" emas, to'g'ridan-to'g'ri qo'shiq nomi bilan saqlaymiz!
       const randomId = crypto.randomUUID().slice(0, 4);
       const safeFileName = `${cleanTitle.slice(0, 30)}_${randomId}`;
 
@@ -117,7 +113,6 @@ function download(url, type, fileName) {
 
     const out = path.join(DIR, `${fileName}.%(ext)s`);
 
-    // Tezlikni oshirish uchun argumentlar optimallashtirildi
     const commonArgs = [
       "--no-playlist",
       "--no-warnings",
@@ -132,10 +127,8 @@ function download(url, type, fileName) {
 
     let specificArgs = [];
     if (type === "audio") {
-      // --embed-metadata qo'shildi! Bu qo'shiq ichiga nomini avtomat muhrlaydi
       specificArgs = ["-x", "--audio-format", "mp3", "--audio-quality", "5", "--embed-metadata"];
     } else {
-      // Eng tez va optimal yuklanadigan video format tanlandi
       specificArgs = ["-f", "mp4[height<=480]/worst[ext=mp4]/b[ext=mp4]"];
     }
 
@@ -185,7 +178,7 @@ function download(url, type, fileName) {
 bot.start((ctx) => {
   ctx.session = {};
   ctx.reply(
-    "🚀 V13 PRO MEDIA BOT",
+    "🚀 V13 PRO MEDIA BOT\n\nQidirmoqchi bo'lgan narsangizni sarlavhasini yoki YouTube havolasini to'g'ridan-to'g'ri yuboring!",
     Markup.inlineKeyboard([
       [
         Markup.button.callback("🎬 Kino (Trailer)", "movie"),
@@ -210,19 +203,21 @@ bot.action("music", (ctx) => {
 async function search(ctx, q) {
   try {
     const r = await yts(q);
-    const videos = r.videos.slice(0, 8);
+    const videos = r.videos.slice(0, 5); // Ekran to'lib ketmasligi uchun eng zo'r 5 ta natija
     if (!videos.length) return ctx.reply("Hech narsa topilmadi 😕");
 
-    const typeKey = ctx.session.mode === "music" ? "m" : "v";
+    // Har bir video uchun alohida qator va o'sha qatorda MP3 va Video tugmalari joylashadi
+    const buttons = [];
+    videos.forEach((v) => {
+      const shortTitle = v.title.slice(0, 30);
+      buttons.push([Markup.button.callback(`📝 ${shortTitle}`, "none")]); // Sarlavha tugmasi (bosganda hech narsa qilmaydi)
+      buttons.push([
+        Markup.button.callback("🎵 MP3", `dl_m_${v.videoId}`),
+        Markup.button.callback("🎥 Video", `dl_v_${v.videoId}`)
+      ]);
+    });
 
-    return ctx.reply(
-      "📋 Natijalar:",
-      Markup.inlineKeyboard(
-        videos.map((v) => [
-          Markup.button.callback(v.title.slice(0, 35), `dl_${typeKey}_${v.videoId}`)
-        ])
-      )
-    );
+    return ctx.reply("📋 Natijalar topildi. Yuklab olmoqchi bo'lgan formatni tanlang:", Markup.inlineKeyboard(buttons));
   } catch (err) {
     ctx.reply("Qidiruvda xatolik yuz berdi.");
   }
@@ -244,11 +239,14 @@ bot.on("text", async (ctx) => {
     );
   }
 
-  if (!ctx.session.mode) return ctx.reply("Avval Kino yoki Musiqa tanlang");
+  if (!ctx.session.mode) return ctx.reply("Avval inline tugmalardan Kino yoki Musiqa bo'limini tanlang yoki to'g'ridan-to'g'ri link yuboring.");
 
   const q = ctx.session.mode === "movie" ? text + " trailer" : text;
   await search(ctx, q);
 });
+
+// Hech narsa qilmaydigan sarlavha tugmasi bosilganda xatolik bermasligi uchun
+bot.action("none", (ctx) => ctx.answerCbQuery());
 
 bot.action(/dl_(m|v)_(.+)/, async (ctx) => {
   await ctx.answerCbQuery();
