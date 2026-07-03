@@ -99,7 +99,7 @@ async function worker() {
       } else if (e.message === "TIMEOUT") {
         errorText = "❌ Kutish vaqti tugadi (Timeout). Server juda sekin.";
       } else if (e.message.includes("Kod: 1")) {
-        errorText = "⚠️ YouTube cheklovi yuzaga keldi. Tizim yangilanmoqda, qayta urinib ko'ring.";
+        errorText = "⚠️ Tizim yangilanmoqda, iltimos qayta urinib ko'ring.";
         initYtdlp(true);
       }
 
@@ -186,7 +186,7 @@ function download(url, type, fileName) {
 bot.start((ctx) => {
   ctx.session = {};
   ctx.reply(
-    "🚀 V13 PRO MEDIA BOT\n\nPastdagi tugmalar orqali bo'limni tanlang va qidirmoqchi bo'lgan narsangizni yozib yuboring!",
+    "🚀 V13 PRO MEDIA BOT\n\nPastdagi menyudan bo'limni tanlang yoki to'g'ridan-to'g'ri YouTube havolasini yuboring!",
     mainMenu
   );
 });
@@ -214,15 +214,9 @@ async function search(ctx, q) {
       const shortTitle = v.title.slice(0, 30);
       
       if (isMusic) {
-        // Musiqa bo'limida faqat MP3 tugmasi chiqadi
-        buttons.push([
-          Markup.button.callback(`🎵 ${shortTitle}`, `dl_m_${v.videoId}`)
-        ]);
+        buttons.push([Markup.button.callback(`🎵 ${shortTitle}`, `dl_m_${v.videoId}`)]);
       } else {
-        // Kino bo'limida faqat Video tugmasi chiqadi
-        buttons.push([
-          Markup.button.callback(`🎥 ${shortTitle}`, `dl_v_${v.videoId}`)
-        ]);
+        buttons.push([Markup.button.callback(`🎥 ${shortTitle}`, `dl_v_${v.videoId}`)]);
       }
     });
 
@@ -237,15 +231,15 @@ bot.on("text", async (ctx) => {
 
   if (text === "🎬 Kino (Trailer) qidirish" || text === "🎵 Musiqa qidirish") return;
 
-  // Agar foydalanuvchi link yuborsa, u holda format so'raydi (chunki link nimaligi noma'lum)
+  // Havolani to'g'ri tekshirish va yts xatosini tuzatish
   if (/https?:\/\//.test(text)) {
     ctx.session.link = text;
     return ctx.reply(
       "📥 Havola aniqlandi. Formatni tanlang:",
       Markup.inlineKeyboard([
         [
-          Markup.button.callback("🎥 Video", "link_video"),
-          Markup.button.callback("🎵 MP3", "link_audio")
+          Markup.button.callback("🎥 Video yuklash", "link_video"),
+          Markup.button.callback("🎵 MP3 yuklash", "link_audio")
         ]
       ])
     );
@@ -280,30 +274,19 @@ bot.action(/dl_(m|v)_(.+)/, async (ctx) => {
   });
 });
 
+// Link yuborilgandagi amallar optimallashtirildi (yts qidiruvi olib tashlandi, chunki u link bilan ishlamasdi)
 bot.action("link_video", async (ctx) => {
   await ctx.answerCbQuery();
-  if (!ctx.session.link) return ctx.reply("❌ Havola esdan chiqdi. Iltimos linkni qayta yuboring.");
+  if (!ctx.session.link) return ctx.reply("❌ Havola topilmadi. Qayta yuboring.");
   
-  let linkTitle = "Video fayl";
-  try {
-    const r = await yts(ctx.session.link);
-    if (r && r.title) linkTitle = r.title;
-  } catch (_) {}
-
-  addJob({ ctx, url: ctx.session.link, type: "video", title: linkTitle });
+  addJob({ ctx, url: ctx.session.link, type: "video", title: "Video Fayl" });
 });
 
 bot.action("link_audio", async (ctx) => {
   await ctx.answerCbQuery();
-  if (!ctx.session.link) return ctx.reply("❌ Havola esdan chiqdi. Iltimos linkni qayta yuboring.");
+  if (!ctx.session.link) return ctx.reply("❌ Havola topilmadi. Qayta yuboring.");
   
-  let linkTitle = "Audio fayl";
-  try {
-    const r = await yts(ctx.session.link);
-    if (r && r.title) linkTitle = r.title;
-  } catch (_) {}
-
-  addJob({ ctx, url: ctx.session.link, type: "audio", title: linkTitle });
+  addJob({ ctx, url: ctx.session.link, type: "audio", title: "Audio Fayl" });
 });
 
 // ================= SAFE LAUNCH =================
