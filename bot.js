@@ -23,6 +23,11 @@ bot.use((ctx, next) => {
   return next();
 });
 
+// Doimiy pastda turadigan asosiy klaviatura menyusi
+const mainMenu = Markup.keyboard([
+  ["🎵 Musiqa qidirish", "🎬 Kino (Trailer) qidirish"]
+]).resize(); // resize() tugmalarni chiroyli va ixcham qiladi
+
 // ================= TEMP & BINARIES =================
 const DIR = "/tmp";
 if (!fs.existsSync(DIR)) fs.mkdirSync(DIR, { recursive: true });
@@ -178,39 +183,32 @@ function download(url, type, fileName) {
 bot.start((ctx) => {
   ctx.session = {};
   ctx.reply(
-    "🚀 V13 PRO MEDIA BOT\n\nQidirmoqchi bo'lgan narsangizni sarlavhasini yoki YouTube havolasini to'g'ridan-to'g'ri yuboring!",
-    Markup.inlineKeyboard([
-      [
-        Markup.button.callback("🎬 Kino (Trailer)", "movie"),
-        Markup.button.callback("🎵 Musiqa", "music")
-      ]
-    ])
+    "🚀 V13 PRO MEDIA BOT\n\nPastdagi tugmalar orqali bo'limni tanlang va qidirmoqchi bo'lgan narsangizni yozib yuboring!",
+    mainMenu // Klaviatura shu yerda ulanadi
   );
 });
 
-bot.action("movie", (ctx) => {
+// Matn yoziladigan joyning pastidagi tugmalar bosilgandagi reaksiya
+bot.hears("🎬 Kino (Trailer) qidirish", (ctx) => {
   ctx.session.mode = "movie";
-  ctx.answerCbQuery();
   ctx.reply("🎬 Kino nomini yozing:");
 });
 
-bot.action("music", (ctx) => {
+bot.hears("🎵 Musiqa qidirish", (ctx) => {
   ctx.session.mode = "music";
-  ctx.answerCbQuery();
   ctx.reply("🎵 Qo‘shiq nomini yozing:");
 });
 
 async function search(ctx, q) {
   try {
     const r = await yts(q);
-    const videos = r.videos.slice(0, 5); // Ekran to'lib ketmasligi uchun eng zo'r 5 ta natija
+    const videos = r.videos.slice(0, 5); 
     if (!videos.length) return ctx.reply("Hech narsa topilmadi 😕");
 
-    // Har bir video uchun alohida qator va o'sha qatorda MP3 va Video tugmalari joylashadi
     const buttons = [];
     videos.forEach((v) => {
       const shortTitle = v.title.slice(0, 30);
-      buttons.push([Markup.button.callback(`📝 ${shortTitle}`, "none")]); // Sarlavha tugmasi (bosganda hech narsa qilmaydi)
+      buttons.push([Markup.button.callback(`📝 ${shortTitle}`, "none")]);
       buttons.push([
         Markup.button.callback("🎵 MP3", `dl_m_${v.videoId}`),
         Markup.button.callback("🎥 Video", `dl_v_${v.videoId}`)
@@ -226,6 +224,9 @@ async function search(ctx, q) {
 bot.on("text", async (ctx) => {
   const text = ctx.message.text;
 
+  // Agar foydalanuvchi klaviatura tugmalarini bossa, qidiruv algoritmini ishlatmaymiz
+  if (text === "🎬 Kino (Trailer) qidirish" || text === "🎵 Musiqa qidirish") return;
+
   if (/https?:\/\//.test(text)) {
     ctx.session.link = text;
     return ctx.reply(
@@ -239,13 +240,14 @@ bot.on("text", async (ctx) => {
     );
   }
 
-  if (!ctx.session.mode) return ctx.reply("Avval inline tugmalardan Kino yoki Musiqa bo'limini tanlang yoki to'g'ridan-to'g'ri link yuboring.");
+  if (!ctx.session.mode) {
+    return ctx.reply("Avval pastdagi menyudan Kino yoki Musiqa bo'limini tanlang.", mainMenu);
+  }
 
   const q = ctx.session.mode === "movie" ? text + " trailer" : text;
   await search(ctx, q);
 });
 
-// Hech narsa qilmaydigan sarlavha tugmasi bosilganda xatolik bermasligi uchun
 bot.action("none", (ctx) => ctx.answerCbQuery());
 
 bot.action(/dl_(m|v)_(.+)/, async (ctx) => {
