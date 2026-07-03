@@ -31,7 +31,7 @@ const YTDLP_PATH = path.join(DIR, "yt-dlp");
 function initYtdlp() {
   try {
     console.log("🔄 yt-dlp tekshirilmoqda...");
-    execSync(`curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o ${YTDLP_PATH}`);
+    execSync(`curl -sL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o ${YTDLP_PATH}`);
     execSync(`chmod a+rx ${YTDLP_PATH}`);
     console.log("✅ yt-dlp muvaffaqiyatli o'rnatildi va tayyor!");
   } catch (err) {
