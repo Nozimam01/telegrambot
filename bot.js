@@ -38,7 +38,6 @@ function initYtdlp() {
     console.error("❌ yt-dlp yuklashda xatolik:", err.message);
   }
 }
-// Bot ishga tushganda yt-dlp ning eng oxirgi versiyasini yuklab oladi
 initYtdlp();
 
 // ================= JOB CONTROL =================
@@ -55,7 +54,7 @@ async function worker() {
 
   while (queue.length) {
     const job = queue.shift();
-    const msg = await job.ctx.reply("⏳ Fayl qidirilmoqda va yuklanmoqda, kuting...").catch(() => null);
+    const msg = await job.ctx.reply("⏳ Fayl yuklanmoqda, kuting...").catch(() => null);
 
     try {
       const fileId = crypto.randomUUID().slice(0, 8);
@@ -67,16 +66,19 @@ async function worker() {
         await job.ctx.telegram.editMessageText(job.ctx.chat.id, msg.message_id, null, "🚀 Fayl tayyor! Telegramga yuborilmoqda...").catch(() => {});
       }
 
+      // Fayl nomidan noqulay belgilarni tozalash (Telegram xavfsizligi uchun)
+      const cleanTitle = (job.title || "Media").replace(/[\\/:*?"<>|]/g, "");
+
       if (job.type === "audio") {
         await job.ctx.replyWithAudio({
           source: file,
-          title: job.title || "Audio",
+          title: cleanTitle,
           performer: "V13 Downloader"
         });
       } else {
         await job.ctx.replyWithVideo({
           source: file,
-          caption: job.title || "Video"
+          caption: `🎬 ${cleanTitle}`
         });
       }
 
@@ -134,11 +136,9 @@ function download(url, type, fileName) {
     
     let killed = false;
     let isTooLarge = false;
-    let stderrOutput = "";
 
     proc.stderr.on("data", (d) => {
       const s = d.toString();
-      stderrOutput += s;
       if (s.includes("File is larger than max-filesize")) {
         isTooLarge = true;
       }
@@ -226,7 +226,7 @@ bot.on("text", async (ctx) => {
   if (/https?:\/\//.test(text)) {
     ctx.session.link = text;
     return ctx.reply(
-      "📥 Format:",
+      "📥 Havola aniqlandi. Formatni tanlang:",
       Markup.inlineKeyboard([
         [
           Markup.button.callback("🎥 Video", "link_video"),
@@ -248,26 +248,49 @@ bot.action(/dl_(m|v)_(.+)/, async (ctx) => {
   const videoId = ctx.match[2];  
   
   const url = `https://youtube.com/watch?v=${videoId}`;
+  
+  let mediaTitle = "Media Fayl";
+  try {
+    // ID orqali videoning to'liq ma'lumotlarini olib, o'z nomini aniqlaymiz
+    const videoInfo = await yts({ videoId: videoId });
+    if (videoInfo && videoInfo.title) mediaTitle = videoInfo.title;
+  } catch (_) {}
+
   addJob({
     ctx,
     url,
     type: typeFlag === "m" ? "audio" : "video",
-    title: `YouTube_${videoId}`
+    title: mediaTitle
   });
 });
 
-bot.action("link_video", (ctx) => {
-  ctx.answerCbQuery();
-  addJob({ ctx, url: ctx.session.link, type: "video", title: "Video_fayl" });
+bot.action("link_video", async (ctx) => {
+  await ctx.answerCbQuery();
+  if (!ctx.session.link) return ctx.reply("❌ Havola esdan chiqdi. Iltimos linkni qayta yuboring.");
+  
+  let linkTitle = "Video fayl";
+  try {
+    const r = await yts(ctx.session.link);
+    if (r && r.title) linkTitle = r.title;
+  } catch (_) {}
+
+  addJob({ ctx, url: ctx.session.link, type: "video", title: linkTitle });
 });
 
-bot.action("link_audio", (ctx) => {
-  ctx.answerCbQuery();
-  addJob({ ctx, url: ctx.session.link, type: "audio", title: "Audio_fayl" });
+bot.action("link_audio", async (ctx) => {
+  await ctx.answerCbQuery();
+  if (!ctx.session.link) return ctx.reply("❌ Havola esdan chiqdi. Iltimos linkni qayta yuboring.");
+  
+  let linkTitle = "Audio fayl";
+  try {
+    const r = await yts(ctx.session.link);
+    if (r && r.title) linkTitle = r.title;
+  } catch (_) {}
+
+  addJob({ ctx, url: ctx.session.link, type: "audio", title: linkTitle });
 });
 
 // ================= SAFE LAUNCH =================
-// dropPendingUpdates konflikt (409 Conflict) va eski ochoratlarni tozalaydi
 bot.launch({ allowedUpdates: [], dropPendingUpdates: true })
   .then(() => console.log("🔥 V13 PRO STABLE READY"))
   .catch((err) => console.error("❌ Botni ishga tushirishda xatolik:", err.message));
