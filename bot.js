@@ -33,17 +33,15 @@ if (!fs.existsSync(DIR)) fs.mkdirSync(DIR, { recursive: true });
 
 const YTDLP_PATH = path.join(DIR, "yt-dlp");
 
-// Majburiy yangilash uchun force parametru qo'shildi
 function initYtdlp(force = false) {
   try {
     if (fs.existsSync(YTDLP_PATH) && !force) {
-      console.log("✅ yt-dlp allaqachon mavjud.");
       return;
     }
     console.log("🔄 yt-dlp yuklanmoqda/yangilanmoqda...");
     execSync(`curl -sL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o ${YTDLP_PATH}`);
     execSync(`chmod a+rx ${YTDLP_PATH}`);
-    console.log("✅ yt-dlp muvaffaqiyatli o'rnatildi va tayyor!");
+    console.log("✅ yt-dlp tayyor!");
   } catch (err) {
     console.error("❌ yt-dlp yuklashda xatolik:", err.message);
   }
@@ -101,8 +99,7 @@ async function worker() {
       } else if (e.message === "TIMEOUT") {
         errorText = "❌ Kutish vaqti tugadi (Timeout). Server juda sekin.";
       } else if (e.message.includes("Kod: 1")) {
-        errorText = "⚠️ YouTube cheklovi yuzaga keldi. Tizim avtomatik yangilanmoqda, iltimos 1 daqiqa kutib qayta urinib ko'ring.";
-        // Kod: 1 xatosi bo'lganda orqa fonda yt-dlp ni majburiy yangilaymiz
+        errorText = "⚠️ YouTube cheklovi yuzaga keldi. Tizim yangilanmoqda, qayta urinib ko'ring.";
         initYtdlp(true);
       }
 
@@ -131,7 +128,7 @@ function download(url, type, fileName) {
       "--retries", "3",
       "--fragment-retries", "5",
       "--max-filesize", "2G",
-      "--extractor-args", "youtube:player_client=android", // YouTube bloklaridan o'tish uchun maxsus klient
+      "--extractor-args", "youtube:player_client=android",
       "-o", out,
       url
     ];
@@ -148,11 +145,9 @@ function download(url, type, fileName) {
     
     let killed = false;
     let isTooLarge = false;
-    let stderrOutput = "";
 
     proc.stderr.on("data", (d) => {
       const s = d.toString();
-      stderrOutput += s;
       if (s.includes("File is larger than max-filesize")) {
         isTooLarge = true;
       }
@@ -176,7 +171,6 @@ function download(url, type, fileName) {
       if (isTooLarge) return reject(new Error("TOO_LARGE"));
 
       if (code !== 0) {
-        console.error("yt-dlp to'liq xatolik logi:", stderrOutput);
         return reject(new Error(`yt-dlp xatosi (Kod: ${code}).`));
       }
 
@@ -214,16 +208,25 @@ async function search(ctx, q) {
     if (!videos.length) return ctx.reply("Hech narsa topilmadi 😕");
 
     const buttons = [];
+    const isMusic = ctx.session.mode === "music";
+
     videos.forEach((v) => {
       const shortTitle = v.title.slice(0, 30);
-      buttons.push([Markup.button.callback(`📝 ${shortTitle}`, "none")]);
-      buttons.push([
-        Markup.button.callback("🎵 MP3", `dl_m_${v.videoId}`),
-        Markup.button.callback("🎥 Video", `dl_v_${v.videoId}`)
-      ]);
+      
+      if (isMusic) {
+        // Musiqa bo'limida faqat MP3 tugmasi chiqadi
+        buttons.push([
+          Markup.button.callback(`🎵 ${shortTitle}`, `dl_m_${v.videoId}`)
+        ]);
+      } else {
+        // Kino bo'limida faqat Video tugmasi chiqadi
+        buttons.push([
+          Markup.button.callback(`🎥 ${shortTitle}`, `dl_v_${v.videoId}`)
+        ]);
+      }
     });
 
-    return ctx.reply("📋 Natijalar topildi. Yuklab olmoqchi bo'lgan formatni tanlang:", Markup.inlineKeyboard(buttons));
+    return ctx.reply("📋 Natijalar topildi. Yuklab olish uchun ustiga bosing:", Markup.inlineKeyboard(buttons));
   } catch (err) {
     ctx.reply("Qidiruvda xatolik yuz berdi.");
   }
@@ -234,6 +237,7 @@ bot.on("text", async (ctx) => {
 
   if (text === "🎬 Kino (Trailer) qidirish" || text === "🎵 Musiqa qidirish") return;
 
+  // Agar foydalanuvchi link yuborsa, u holda format so'raydi (chunki link nimaligi noma'lum)
   if (/https?:\/\//.test(text)) {
     ctx.session.link = text;
     return ctx.reply(
@@ -254,8 +258,6 @@ bot.on("text", async (ctx) => {
   const q = ctx.session.mode === "movie" ? text + " trailer" : text;
   await search(ctx, q);
 });
-
-bot.action("none", (ctx) => ctx.answerCbQuery());
 
 bot.action(/dl_(m|v)_(.+)/, async (ctx) => {
   await ctx.answerCbQuery();
