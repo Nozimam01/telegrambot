@@ -99,7 +99,7 @@ async function worker() {
       } else if (e.message === "TIMEOUT") {
         errorText = "❌ Kutish vaqti tugadi (Timeout). Server juda sekin.";
       } else if (e.message.includes("Kod: 1")) {
-        errorText = "⚠️ Tizim yangilanmoqda, iltimos qayta urinib ko'ring.";
+        errorText = "⚠️ Yuklashda xatolik bo'ldi. Tizim qayta urinmoqda...";
         initYtdlp(true);
       }
 
@@ -120,15 +120,16 @@ function download(url, type, fileName) {
 
     const out = path.join(DIR, `${fileName}.%(ext)s`);
 
+    // Blokirovkadan o'tish uchun eng kuchli argumentlar yig'indisi
     const commonArgs = [
       "--no-playlist",
       "--no-warnings",
       "--quiet",
-      "--socket-timeout", "20",
-      "--retries", "3",
+      "--socket-timeout", "30",
+      "--retries", "5",
       "--fragment-retries", "5",
       "--max-filesize", "2G",
-      "--extractor-args", "youtube:player_client=android",
+      "--extractor-args", "youtube:player_client=android,web", // Ikkala klient ham qo'shildi
       "-o", out,
       url
     ];
@@ -231,7 +232,6 @@ bot.on("text", async (ctx) => {
 
   if (text === "🎬 Kino (Trailer) qidirish" || text === "🎵 Musiqa qidirish") return;
 
-  // Havolani to'g'ri tekshirish va yts xatosini tuzatish
   if (/https?:\/\//.test(text)) {
     ctx.session.link = text;
     return ctx.reply(
@@ -274,18 +274,15 @@ bot.action(/dl_(m|v)_(.+)/, async (ctx) => {
   });
 });
 
-// Link yuborilgandagi amallar optimallashtirildi (yts qidiruvi olib tashlandi, chunki u link bilan ishlamasdi)
 bot.action("link_video", async (ctx) => {
   await ctx.answerCbQuery();
   if (!ctx.session.link) return ctx.reply("❌ Havola topilmadi. Qayta yuboring.");
-  
   addJob({ ctx, url: ctx.session.link, type: "video", title: "Video Fayl" });
 });
 
 bot.action("link_audio", async (ctx) => {
   await ctx.answerCbQuery();
   if (!ctx.session.link) return ctx.reply("❌ Havola topilmadi. Qayta yuboring.");
-  
   addJob({ ctx, url: ctx.session.link, type: "audio", title: "Audio Fayl" });
 });
 
