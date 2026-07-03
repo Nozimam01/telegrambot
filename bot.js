@@ -30,7 +30,12 @@ if (!fs.existsSync(DIR)) fs.mkdirSync(DIR, { recursive: true });
 const YTDLP_PATH = path.join(DIR, "yt-dlp");
 function initYtdlp() {
   try {
-    console.log("🔄 yt-dlp tekshirilmoqda...");
+    // Har safar qayta yuklamaslik uchun tekshiramiz
+    if (fs.existsSync(YTDLP_PATH)) {
+      console.log("✅ yt-dlp allaqachon mavjud.");
+      return;
+    }
+    console.log("🔄 yt-dlp yuklanmoqda...");
     execSync(`curl -sL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o ${YTDLP_PATH}`);
     execSync(`chmod a+rx ${YTDLP_PATH}`);
     console.log("✅ yt-dlp muvaffaqiyatli o'rnatildi va tayyor!");
@@ -57,17 +62,18 @@ async function worker() {
     const msg = await job.ctx.reply("⏳ Fayl yuklanmoqda, kuting...").catch(() => null);
 
     try {
-      const fileId = crypto.randomUUID().slice(0, 8);
-      const safeFileName = `media_${fileId}`;
+      // Sarlavhadan taqiqlangan belgilarni tozalaymiz
+      const cleanTitle = (job.title || "Media").replace(/[\\/:*?"<>|]/g, " ").trim();
+      
+      // Fayl nomini "media_id" emas, to'g'ridan-to'g'ri qo'shiq nomi bilan saqlaymiz!
+      const randomId = crypto.randomUUID().slice(0, 4);
+      const safeFileName = `${cleanTitle.slice(0, 30)}_${randomId}`;
 
       const file = await download(job.url, job.type, safeFileName);
 
       if (msg) {
         await job.ctx.telegram.editMessageText(job.ctx.chat.id, msg.message_id, null, "🚀 Fayl tayyor! Telegramga yuborilmoqda...").catch(() => {});
       }
-
-      // Fayl nomidan noqulay belgilarni tozalash (Telegram xavfsizligi uchun)
-      const cleanTitle = (job.title || "Media").replace(/[\\/:*?"<>|]/g, "");
 
       if (job.type === "audio") {
         await job.ctx.replyWithAudio({
@@ -111,24 +117,26 @@ function download(url, type, fileName) {
 
     const out = path.join(DIR, `${fileName}.%(ext)s`);
 
+    // Tezlikni oshirish uchun argumentlar optimallashtirildi
     const commonArgs = [
       "--no-playlist",
       "--no-warnings",
       "--quiet",
-      "--socket-timeout", "30",
-      "--retries", "5",
+      "--socket-timeout", "20",
+      "--retries", "3",
       "--fragment-retries", "5",
       "--max-filesize", "2G", 
-      "--extractor-args", "youtube:player_client=android,web", 
       "-o", out,
       url
     ];
 
     let specificArgs = [];
     if (type === "audio") {
-      specificArgs = ["-x", "--audio-format", "mp3", "--audio-quality", "5"];
+      // --embed-metadata qo'shildi! Bu qo'shiq ichiga nomini avtomat muhrlaydi
+      specificArgs = ["-x", "--audio-format", "mp3", "--audio-quality", "5", "--embed-metadata"];
     } else {
-      specificArgs = ["-f", "worst[ext=mp4]/b[ext=mp4]"];
+      // Eng tez va optimal yuklanadigan video format tanlandi
+      specificArgs = ["-f", "mp4[height<=480]/worst[ext=mp4]/b[ext=mp4]"];
     }
 
     const args = [...specificArgs, ...commonArgs];
@@ -251,7 +259,6 @@ bot.action(/dl_(m|v)_(.+)/, async (ctx) => {
   
   let mediaTitle = "Media Fayl";
   try {
-    // ID orqali videoning to'liq ma'lumotlarini olib, o'z nomini aniqlaymiz
     const videoInfo = await yts({ videoId: videoId });
     if (videoInfo && videoInfo.title) mediaTitle = videoInfo.title;
   } catch (_) {}
