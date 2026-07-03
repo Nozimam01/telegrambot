@@ -23,23 +23,24 @@ bot.use((ctx, next) => {
   return next();
 });
 
-// Doimiy pastda turadigan asosiy klaviatura menyusi
 const mainMenu = Markup.keyboard([
   ["🎵 Musiqa qidirish", "🎬 Kino (Trailer) qidirish"]
-]).resize(); // resize() tugmalarni chiroyli va ixcham qiladi
+]).resize();
 
 // ================= TEMP & BINARIES =================
 const DIR = "/tmp";
 if (!fs.existsSync(DIR)) fs.mkdirSync(DIR, { recursive: true });
 
 const YTDLP_PATH = path.join(DIR, "yt-dlp");
-function initYtdlp() {
+
+// Majburiy yangilash uchun force parametru qo'shildi
+function initYtdlp(force = false) {
   try {
-    if (fs.existsSync(YTDLP_PATH)) {
+    if (fs.existsSync(YTDLP_PATH) && !force) {
       console.log("✅ yt-dlp allaqachon mavjud.");
       return;
     }
-    console.log("🔄 yt-dlp yuklanmoqda...");
+    console.log("🔄 yt-dlp yuklanmoqda/yangilanmoqda...");
     execSync(`curl -sL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o ${YTDLP_PATH}`);
     execSync(`chmod a+rx ${YTDLP_PATH}`);
     console.log("✅ yt-dlp muvaffaqiyatli o'rnatildi va tayyor!");
@@ -99,6 +100,10 @@ async function worker() {
         errorText = "⚠️ Fayl hajmi juda katta! Maksimal limit: 2 GB.";
       } else if (e.message === "TIMEOUT") {
         errorText = "❌ Kutish vaqti tugadi (Timeout). Server juda sekin.";
+      } else if (e.message.includes("Kod: 1")) {
+        errorText = "⚠️ YouTube cheklovi yuzaga keldi. Tizim avtomatik yangilanmoqda, iltimos 1 daqiqa kutib qayta urinib ko'ring.";
+        // Kod: 1 xatosi bo'lganda orqa fonda yt-dlp ni majburiy yangilaymiz
+        initYtdlp(true);
       }
 
       job.ctx.reply(errorText);
@@ -125,7 +130,8 @@ function download(url, type, fileName) {
       "--socket-timeout", "20",
       "--retries", "3",
       "--fragment-retries", "5",
-      "--max-filesize", "2G", 
+      "--max-filesize", "2G",
+      "--extractor-args", "youtube:player_client=android", // YouTube bloklaridan o'tish uchun maxsus klient
       "-o", out,
       url
     ];
@@ -142,9 +148,11 @@ function download(url, type, fileName) {
     
     let killed = false;
     let isTooLarge = false;
+    let stderrOutput = "";
 
     proc.stderr.on("data", (d) => {
       const s = d.toString();
+      stderrOutput += s;
       if (s.includes("File is larger than max-filesize")) {
         isTooLarge = true;
       }
@@ -168,6 +176,7 @@ function download(url, type, fileName) {
       if (isTooLarge) return reject(new Error("TOO_LARGE"));
 
       if (code !== 0) {
+        console.error("yt-dlp to'liq xatolik logi:", stderrOutput);
         return reject(new Error(`yt-dlp xatosi (Kod: ${code}).`));
       }
 
@@ -184,11 +193,10 @@ bot.start((ctx) => {
   ctx.session = {};
   ctx.reply(
     "🚀 V13 PRO MEDIA BOT\n\nPastdagi tugmalar orqali bo'limni tanlang va qidirmoqchi bo'lgan narsangizni yozib yuboring!",
-    mainMenu // Klaviatura shu yerda ulanadi
+    mainMenu
   );
 });
 
-// Matn yoziladigan joyning pastidagi tugmalar bosilgandagi reaksiya
 bot.hears("🎬 Kino (Trailer) qidirish", (ctx) => {
   ctx.session.mode = "movie";
   ctx.reply("🎬 Kino nomini yozing:");
@@ -224,7 +232,6 @@ async function search(ctx, q) {
 bot.on("text", async (ctx) => {
   const text = ctx.message.text;
 
-  // Agar foydalanuvchi klaviatura tugmalarini bossa, qidiruv algoritmini ishlatmaymiz
   if (text === "🎬 Kino (Trailer) qidirish" || text === "🎵 Musiqa qidirish") return;
 
   if (/https?:\/\//.test(text)) {
