@@ -5,10 +5,10 @@ const express = require("express");
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
-const { spawn, execSync } = require("child_process");
 const yts = require("yt-search");
 const axios = require("axios");
 const mongoose = require("mongoose");
+const ytDlp = require("yt-dlp-exec"); // Muammoni hal qiluvchi yangi kutubxona
 
 // ================= EXPRESS =================
 const app = express();
@@ -34,7 +34,7 @@ const User = mongoose.model("User", UserSchema);
 
 // ================= BOT =================
 const bot = new Telegraf(process.env.BOT_TOKEN);
-const ADMIN_ID = process.env.ADMIN_ID || 123456789; // O'zingizning ID raqamingizni yozing
+const ADMIN_ID = process.env.ADMIN_ID || 123456789;
 
 bot.use(session());
 bot.use((ctx, next) => {
@@ -46,26 +46,8 @@ const mainMenu = Markup.keyboard([
   ["🎵 Musiqa qidirish", "🎬 Kino (Trailer) qidirish"]
 ]).resize();
 
-// ================= TEMP & BINARIES =================
 const DIR = "/tmp";
 if (!fs.existsSync(DIR)) fs.mkdirSync(DIR, { recursive: true });
-
-const YTDLP_PATH = path.join(DIR, "yt-dlp");
-
-function initYtdlp(force = false) {
-  try {
-    if (fs.existsSync(YTDLP_PATH) && !force) {
-      return;
-    }
-    console.log("🔄 yt-dlp yuklanmoqda/yangilanmoqda...");
-    execSync(`curl -sL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o ${YTDLP_PATH}`);
-    execSync(`chmod a+rx ${YTDLP_PATH}`);
-    console.log("✅ yt-dlp tayyor!");
-  } catch (err) {
-    console.error("❌ yt-dlp yuklashda xatolik:", err.message);
-  }
-}
-initYtdlp();
 
 // ================= JOB CONTROL =================
 const queue = [];
@@ -111,17 +93,7 @@ async function worker() {
       if (msg) await job.ctx.deleteMessage(msg.message_id).catch(() => {});
     } catch (e) {
       console.log("DOWNLOAD ERROR DETAILS:", e);
-      
       let errorText = `❌ Yuklab bo'lmadi. Sababi: ${e.message}`;
-      if (e.message === "TOO_LARGE") {
-        errorText = "⚠️ Fayl hajmi juda katta! Maksimal limit: 2 GB.";
-      } else if (e.message === "TIMEOUT") {
-        errorText = "❌ Kutish vaqti tugadi (Timeout). Server juda sekin.";
-      } else if (e.message.includes("Kod: 1")) {
-        errorText = "⚠️ YouTube tizimi yuklashni rad etdi. Server qayta urinmoqda...";
-        initYtdlp(true);
-      }
-
       job.ctx.reply(errorText);
       if (msg) await job.ctx.deleteMessage(msg.message_id).catch(() => {});
     }
@@ -131,80 +103,44 @@ async function worker() {
 }
 
 // ================= DOWNLOAD FUNCTION =================
-function download(url, type, fileName) {
-  return new Promise((resolve, reject) => {
-    if (!fs.existsSync(YTDLP_PATH)) {
-      initYtdlp();
-    }
+async function download(url, type, fileName) {
+  const ext = type === "audio" ? "mp3" : "mp4";
+  const outPath = path.join(DIR, `${fileName}.${ext}`);
 
-    const out = path.join(DIR, `${fileName}.%(ext)s`);
+  const options = {
+    noPlaylist: true,
+    noWarnings: true,
+    quiet: true,
+    socketTimeout: 30,
+    retries: 5,
+    maxFilesize: "2G",
+    output: outPath
+  };
 
-    const commonArgs = [
-      "--no-playlist",
-      "--no-warnings",
-      "--quiet",
-      "--socket-timeout", "30",
-      "--retries", "5",
-      "--fragment-retries", "5",
-      "--max-filesize", "2G",
-      "-o", out,
-      url
-    ];
+  const cookiesPath = path.join(__dirname, "cookies.txt");
+  if (fs.existsSync(cookiesPath)) {
+    options.cookies = cookiesPath;
+  } else {
+    options.extractorArgs = "youtube:player_client=android,web";
+  }
 
-    const cookiesPath = path.join(__dirname, "cookies.txt");
-    if (fs.existsSync(cookiesPath)) {
-      commonArgs.push("--cookies", cookiesPath);
-    } else {
-      commonArgs.push("--extractor-args", "youtube:player_client=android,web");
-    }
+  if (type === "audio") {
+    options.extractAudio = true;
+    options.audioFormat = "mp3";
+    options.audioQuality = "5";
+    options.embedMetadata = true;
+  } else {
+    options.format = "mp4[height<=480]/worst[ext=mp4]/b[ext=mp4]";
+  }
 
-    let specificArgs = [];
-    if (type === "audio") {
-      specificArgs = ["-x", "--audio-format", "mp3", "--audio-quality", "5", "--embed-metadata"];
-    } else {
-      specificArgs = ["-f", "mp4[height<=480]/worst[ext=mp4]/b[ext=mp4]"];
-    }
+  // yt-dlp-exec kutubxonasi orqali yuklash
+  await ytDlp(url, options);
 
-    const args = [...specificArgs, ...commonArgs];
-    const proc = spawn(YTDLP_PATH, args);
-    
-    let killed = false;
-    let isTooLarge = false;
+  if (!fs.existsSync(outPath)) {
+    throw new Error("Fayl serverga yuklanmadi.");
+  }
 
-    proc.stderr.on("data", (d) => {
-      const s = d.toString();
-      if (s.includes("File is larger than max-filesize")) {
-        isTooLarge = true;
-      }
-    });
-
-    const timer = setTimeout(() => {
-      killed = true;
-      proc.kill("SIGKILL");
-      reject(new Error("TIMEOUT"));
-    }, 420000); 
-
-    proc.on("error", (err) => {
-      clearTimeout(timer);
-      reject(err);
-    });
-
-    proc.on("close", (code) => {
-      clearTimeout(timer);
-      if (killed) return;
-      
-      if (isTooLarge) return reject(new Error("TOO_LARGE"));
-
-      if (code !== 0) {
-        return reject(new Error(`yt-dlp xatosi (Kod: ${code}).`));
-      }
-
-      const file = fs.readdirSync(DIR).find(f => f.includes(fileName));
-      if (!file) return reject(new Error("Fayl topilmadi"));
-
-      resolve(path.join(DIR, file));
-    });
-  });
+  return outPath;
 }
 
 // ================= BOT COMMANDS =================
