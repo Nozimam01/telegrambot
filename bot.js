@@ -7,6 +7,7 @@ const path = require("path");
 const crypto = require("crypto");
 const { spawn, execSync } = require("child_process");
 const yts = require("yt-search");
+const axios = require("axios"); // Railway uyg'oq tizimi uchun
 
 // ================= EXPRESS =================
 const app = express();
@@ -99,7 +100,7 @@ async function worker() {
       } else if (e.message === "TIMEOUT") {
         errorText = "❌ Kutish vaqti tugadi (Timeout). Server juda sekin.";
       } else if (e.message.includes("Kod: 1")) {
-        errorText = "⚠️ Yuklashda xatolik bo'ldi. Tizim qayta urinmoqda...";
+        errorText = "⚠️ YouTube tizimi yuklashni rad etdi. Server qayta urinmoqda...";
         initYtdlp(true);
       }
 
@@ -120,7 +121,6 @@ function download(url, type, fileName) {
 
     const out = path.join(DIR, `${fileName}.%(ext)s`);
 
-    // Blokirovkadan o'tish uchun eng kuchli argumentlar yig'indisi
     const commonArgs = [
       "--no-playlist",
       "--no-warnings",
@@ -129,10 +129,16 @@ function download(url, type, fileName) {
       "--retries", "5",
       "--fragment-retries", "5",
       "--max-filesize", "2G",
-      "--extractor-args", "youtube:player_client=android,web", // Ikkala klient ham qo'shildi
       "-o", out,
       url
     ];
+
+    const cookiesPath = path.join(__dirname, "cookies.txt");
+    if (fs.existsSync(cookiesPath)) {
+      commonArgs.push("--cookies", cookiesPath);
+    } else {
+      commonArgs.push("--extractor-args", "youtube:player_client=android,web");
+    }
 
     let specificArgs = [];
     if (type === "audio") {
@@ -213,7 +219,6 @@ async function search(ctx, q) {
 
     videos.forEach((v) => {
       const shortTitle = v.title.slice(0, 30);
-      
       if (isMusic) {
         buttons.push([Markup.button.callback(`🎵 ${shortTitle}`, `dl_m_${v.videoId}`)]);
       } else {
@@ -285,6 +290,15 @@ bot.action("link_audio", async (ctx) => {
   if (!ctx.session.link) return ctx.reply("❌ Havola topilmadi. Qayta yuboring.");
   addJob({ ctx, url: ctx.session.link, type: "audio", title: "Audio Fayl" });
 });
+
+// ================= SELF-PING (KEEP ALIVE) =================
+setInterval(() => {
+  // GitHub loyihangiz nomidan kelib chiqib, havola qo'shildi
+  const myUrl = "https://telegrambot-production.up.railway.app"; 
+  axios.get(myUrl)
+    .then(() => console.log("⏰ Self-ping muvaffaqiyatli: Bot uyg'oq!"))
+    .catch((err) => console.log("⏰ Self-pingda xato:", err.message));
+}, 600000); 
 
 // ================= SAFE LAUNCH =================
 bot.launch({ allowedUpdates: [], dropPendingUpdates: true })
