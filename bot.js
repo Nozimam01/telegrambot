@@ -8,7 +8,7 @@ const crypto = require("crypto");
 const { spawn, execSync } = require("child_process");
 const yts = require("yt-search");
 const axios = require("axios");
-const mongoose = require("mongoose"); // Ma'lumotlar bazasi uchun qo'shildi
+const mongoose = require("mongoose");
 
 // ================= EXPRESS =================
 const app = express();
@@ -17,14 +17,12 @@ const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => console.log("PORT:", PORT));
 
 // ================= DATABASE (MONGODB) =================
-// Railway orqali o'rnatiladigan MONGO_URI muhit o'zgaruvchisi
-const MONGO_URI = process.env.MONGO_URI || "Sizning_MongoDB_Havolangiz_Shu_Yerdan_Boshlanadi";
+const MONGO_URI = process.env.MONGO_URI || "mongodb+srv://Nozimam_01:Nozima2026@cluster0.ixwxk0c.mongodb.net/?appName=Cluster0";
 
 mongoose.connect(MONGO_URI)
   .then(() => console.log("🍃 MongoDB ma'lumotlar bazasiga muvaffaqiyatli ulandi!"))
   .catch((err) => console.error("❌ MongoDB ulanishida xatolik:", err.message));
 
-// Foydalanuvchi ma'lumotlari modeli (ID va Foydalanuvchi nomi bilan saqlash)
 const UserSchema = new mongoose.Schema({
   telegramId: { type: Number, unique: true, required: true },
   username: { type: String, default: "Mavjud emas" },
@@ -36,9 +34,7 @@ const User = mongoose.model("User", UserSchema);
 
 // ================= BOT =================
 const bot = new Telegraf(process.env.BOT_TOKEN);
-
-// ADMIN ID sini kiriting (masalan, o'zingizning Telegram ID raqamingiz)
-const ADMIN_ID = process.env.ADMIN_ID || 123456789; 
+const ADMIN_ID = process.env.ADMIN_ID || 123456789; // O'zingizning ID raqamingizni yozing
 
 bot.use(session());
 bot.use((ctx, next) => {
@@ -215,7 +211,6 @@ function download(url, type, fileName) {
 bot.start(async (ctx) => {
   ctx.session = {};
 
-  // Foydalanuvchini ID, Ismi va Username orqali bazaga saqlash
   try {
     const from = ctx.from;
     await User.findOneAndUpdate(
@@ -224,7 +219,7 @@ bot.start(async (ctx) => {
         username: from.username ? `@${from.username}` : "Mavjud emas", 
         firstName: from.first_name || "Ismsiz" 
       },
-      { upsert: true, new: true }
+      { upsert: true, returnDocument: 'after' }
     );
   } catch (err) {
     console.error("Foydalanuvchini saqlashda xatolik:", err.message);
@@ -236,7 +231,6 @@ bot.start(async (ctx) => {
   );
 });
 
-// Admin uchun statistika buyrug'i
 bot.command("statistika", async (ctx) => {
   if (ctx.from.id !== Number(ADMIN_ID)) {
     return ctx.reply("❌ Bu buyruq faqat bot admini uchun mo'ljallangan.");
@@ -244,7 +238,6 @@ bot.command("statistika", async (ctx) => {
 
   try {
     const totalUsers = await User.countDocuments();
-    // Oxirgi qo'shilgan 5 ta foydalanuvchini ismlari bilan chiqarish
     const recentUsers = await User.find().sort({ joinedAt: -1 }).limit(5);
     
     let userListText = "";
