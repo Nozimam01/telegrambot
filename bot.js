@@ -7,7 +7,8 @@ const path = require("path");
 const crypto = require("crypto");
 const { spawn, execSync } = require("child_process");
 const yts = require("yt-search");
-const axios = require("axios"); // Railway uyg'oq tizimi uchun
+const axios = require("axios");
+const mongoose = require("mongoose"); // Ma'lumotlar bazasi uchun qo'shildi
 
 // ================= EXPRESS =================
 const app = express();
@@ -15,8 +16,29 @@ app.get("/", (req, res) => res.send("🔥 V13 PRO BOT RUNNING"));
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => console.log("PORT:", PORT));
 
+// ================= DATABASE (MONGODB) =================
+// Railway orqali o'rnatiladigan MONGO_URI muhit o'zgaruvchisi
+const MONGO_URI = process.env.MONGO_URI || "Sizning_MongoDB_Havolangiz_Shu_Yerdan_Boshlanadi";
+
+mongoose.connect(MONGO_URI)
+  .then(() => console.log("🍃 MongoDB ma'lumotlar bazasiga muvaffaqiyatli ulandi!"))
+  .catch((err) => console.error("❌ MongoDB ulanishida xatolik:", err.message));
+
+// Foydalanuvchi ma'lumotlari modeli (ID va Foydalanuvchi nomi bilan saqlash)
+const UserSchema = new mongoose.Schema({
+  telegramId: { type: Number, unique: true, required: true },
+  username: { type: String, default: "Mavjud emas" },
+  firstName: { type: String, default: "Ismsiz" },
+  joinedAt: { type: Date, default: Date.now }
+});
+
+const User = mongoose.model("User", UserSchema);
+
 // ================= BOT =================
 const bot = new Telegraf(process.env.BOT_TOKEN);
+
+// ADMIN ID sini kiriting (masalan, o'zingizning Telegram ID raqamingiz)
+const ADMIN_ID = process.env.ADMIN_ID || 123456789; 
 
 bot.use(session());
 bot.use((ctx, next) => {
@@ -190,12 +212,55 @@ function download(url, type, fileName) {
 }
 
 // ================= BOT COMMANDS =================
-bot.start((ctx) => {
+bot.start(async (ctx) => {
   ctx.session = {};
+
+  // Foydalanuvchini ID, Ismi va Username orqali bazaga saqlash
+  try {
+    const from = ctx.from;
+    await User.findOneAndUpdate(
+      { telegramId: from.id },
+      { 
+        username: from.username ? `@${from.username}` : "Mavjud emas", 
+        firstName: from.first_name || "Ismsiz" 
+      },
+      { upsert: true, new: true }
+    );
+  } catch (err) {
+    console.error("Foydalanuvchini saqlashda xatolik:", err.message);
+  }
+
   ctx.reply(
     "🚀 V13 PRO MEDIA BOT\n\nPastdagi menyudan bo'limni tanlang yoki to'g'ridan-to'g'ri YouTube havolasini yuboring!",
     mainMenu
   );
+});
+
+// Admin uchun statistika buyrug'i
+bot.command("statistika", async (ctx) => {
+  if (ctx.from.id !== Number(ADMIN_ID)) {
+    return ctx.reply("❌ Bu buyruq faqat bot admini uchun mo'ljallangan.");
+  }
+
+  try {
+    const totalUsers = await User.countDocuments();
+    // Oxirgi qo'shilgan 5 ta foydalanuvchini ismlari bilan chiqarish
+    const recentUsers = await User.find().sort({ joinedAt: -1 }).limit(5);
+    
+    let userListText = "";
+    recentUsers.forEach((u, index) => {
+      userListText += `${index + 1}. ${u.firstName} (${u.username})\n`;
+    });
+
+    ctx.reply(
+      `📊 *BOT STATISTIKASI*\n\n` +
+      `👥 Jami foydalanuvchilar soni: *${totalUsers} ta*\n\n` +
+      `🆕 Oxirgi qo'shilganlar:\n${userListText}`,
+      { parse_mode: "Markdown" }
+    );
+  } catch (err) {
+    ctx.reply("Statistikani hisoblashda xatolik yuz berdi.");
+  }
 });
 
 bot.hears("🎬 Kino (Trailer) qidirish", (ctx) => {
@@ -293,7 +358,6 @@ bot.action("link_audio", async (ctx) => {
 
 // ================= SELF-PING (KEEP ALIVE) =================
 setInterval(() => {
-  // GitHub loyihangiz nomidan kelib chiqib, havola qo'shildi
   const myUrl = "https://telegrambot-production.up.railway.app"; 
   axios.get(myUrl)
     .then(() => console.log("⏰ Self-ping muvaffaqiyatli: Bot uyg'oq!"))
