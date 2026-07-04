@@ -5,10 +5,10 @@ const express = require("express");
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
+const { exec } = require("child_process");
 const yts = require("yt-search");
 const axios = require("axios");
 const mongoose = require("mongoose");
-const ytDlp = require("yt-dlp-exec"); // Muammoni hal qiluvchi yangi kutubxona
 
 // ================= EXPRESS =================
 const app = express();
@@ -17,7 +17,8 @@ const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => console.log("PORT:", PORT));
 
 // ================= DATABASE (MONGODB) =================
-const MONGO_URL = process.env.MONGO_URI || "mongodb+srv://Nozimam_01:Nozima2026@cluster0.ixwxk0c.mongodb.net/?appName=Cluster0";
+const MONGO_URI = process.env.MONGO_URI || "mongodb+srv://Nozimam_01:Nozima2026@cluster0.ixwxk0c.mongodb.net/?appName=Cluster0";
+
 mongoose.connect(MONGO_URI)
   .then(() => console.log("🍃 MongoDB ma'lumotlar bazasiga muvaffaqiyatli ulandi!"))
   .catch((err) => console.error("❌ MongoDB ulanishida xatolik:", err.message));
@@ -92,8 +93,7 @@ async function worker() {
       if (msg) await job.ctx.deleteMessage(msg.message_id).catch(() => {});
     } catch (e) {
       console.log("DOWNLOAD ERROR DETAILS:", e);
-      let errorText = `❌ Yuklab bo'lmadi. Sababi: ${e.message}`;
-      job.ctx.reply(errorText);
+      job.ctx.reply(`❌ Yuklab bo'lmadi. Sababi: ${e.message || e}`);
       if (msg) await job.ctx.deleteMessage(msg.message_id).catch(() => {});
     }
   }
@@ -102,50 +102,35 @@ async function worker() {
 }
 
 // ================= DOWNLOAD FUNCTION =================
-async function download(url, type, fileName) {
-  const ext = type === "audio" ? "mp3" : "mp4";
-  const outPath = path.join(DIR, `${fileName}.${ext}`);
+function download(url, type, fileName) {
+  return new Promise((resolve, reject) => {
+    const ext = type === "audio" ? "mp3" : "mp4";
+    const outPath = path.join(DIR, `${fileName}.${ext}`);
+    
+    // Npx orqali yt-dlp ni build qimasdan to'g'ridan-to'g'ri chaqiramiz
+    let cmd = `npx yt-dlp --no-playlist --no-warnings --quiet --max-filesize 2G -o "${outPath}" "${url}"`;
+    
+    if (type === "audio") {
+      cmd += ` -x --audio-format mp3 --audio-quality 5`;
+    } else {
+      cmd += ` -f "mp4[height<=480]/worst[ext=mp4]/b[ext=mp4]"`;
+    }
 
-  const options = {
-    noPlaylist: true,
-    noWarnings: true,
-    quiet: true,
-    socketTimeout: 30,
-    retries: 5,
-    maxFilesize: "2G",
-    output: outPath
-  };
-
-  const cookiesPath = path.join(__dirname, "cookies.txt");
-  if (fs.existsSync(cookiesPath)) {
-    options.cookies = cookiesPath;
-  } else {
-    options.extractorArgs = "youtube:player_client=android,web";
-  }
-
-  if (type === "audio") {
-    options.extractAudio = true;
-    options.audioFormat = "mp3";
-    options.audioQuality = "5";
-    options.embedMetadata = true;
-  } else {
-    options.format = "mp4[height<=480]/worst[ext=mp4]/b[ext=mp4]";
-  }
-
-  // yt-dlp-exec kutubxonasi orqali yuklash
-  await ytDlp(url, options);
-
-  if (!fs.existsSync(outPath)) {
-    throw new Error("Fayl serverga yuklanmadi.");
-  }
-
-  return outPath;
+    exec(cmd, (error, stdout, stderr) => {
+      if (error) {
+        return reject(new Error(`yt-dlp xatosi: ${stderr || error.message}`));
+      }
+      if (!fs.existsSync(outPath)) {
+        return reject(new Error("Fayl topilmadi"));
+      }
+      resolve(outPath);
+    });
+  });
 }
 
 // ================= BOT COMMANDS =================
 bot.start(async (ctx) => {
   ctx.session = {};
-
   try {
     const from = ctx.from;
     await User.findOneAndUpdate(
@@ -159,143 +144,73 @@ bot.start(async (ctx) => {
   } catch (err) {
     console.error("Foydalanuvchini saqlashda xatolik:", err.message);
   }
-
-  ctx.reply(
-    "🚀 V13 PRO MEDIA BOT\n\nPastdagi menyudan bo'limni tanlang yoki to'g'ridan-to'g'ri YouTube havolasini yuboring!",
-    mainMenu
-  );
+  ctx.reply("🚀 V13 PRO MEDIA BOT\n\nPastdagi menyudan bo'limni tanlang yoki to'g'ridan-to'g'ri YouTube havolasini yuboring!", mainMenu);
 });
 
 bot.command("statistika", async (ctx) => {
-  if (ctx.from.id !== Number(ADMIN_ID)) {
-    return ctx.reply("❌ Bu buyruq faqat bot admini uchun mo'ljallangan.");
-  }
-
+  if (ctx.from.id !== Number(ADMIN_ID)) return ctx.reply("❌ Faqat admin uchun.");
   try {
     const totalUsers = await User.countDocuments();
-    const recentUsers = await User.find().sort({ joinedAt: -1 }).limit(5);
-    
-    let userListText = "";
-    recentUsers.forEach((u, index) => {
-      userListText += `${index + 1}. ${u.firstName} (${u.username})\n`;
-    });
-
-    ctx.reply(
-      `📊 *BOT STATISTIKASI*\n\n` +
-      `👥 Jami foydalanuvchilar soni: *${totalUsers} ta*\n\n` +
-      `🆕 Oxirgi qo'shilganlar:\n${userListText}`,
-      { parse_mode: "Markdown" }
-    );
-  } catch (err) {
-    ctx.reply("Statistikani hisoblashda xatolik yuz berdi.");
-  }
+    ctx.reply(`👥 Jami foydalanuvchilar soni: *${totalUsers} ta*`, { parse_mode: "Markdown" });
+  } catch (err) { ctx.reply("Xatolik yuz berdi."); }
 });
 
-bot.hears("🎬 Kino (Trailer) qidirish", (ctx) => {
-  ctx.session.mode = "movie";
-  ctx.reply("🎬 Kino nomini yozing:");
-});
-
-bot.hears("🎵 Musiqa qidirish", (ctx) => {
-  ctx.session.mode = "music";
-  ctx.reply("🎵 Qo‘shiq nomini yozing:");
-});
+bot.hears("🎬 Kino (Trailer) qidirish", (ctx) => { ctx.session.mode = "movie"; ctx.reply("🎬 Kino nomini yozing:"); });
+bot.hears("🎵 Musiqa qidirish", (ctx) => { ctx.session.mode = "music"; ctx.reply("🎵 Qo‘shiq nomini yozing:"); });
 
 async function search(ctx, q) {
   try {
     const r = await yts(q);
     const videos = r.videos.slice(0, 5); 
     if (!videos.length) return ctx.reply("Hech narsa topilmadi 😕");
-
     const buttons = [];
     const isMusic = ctx.session.mode === "music";
-
     videos.forEach((v) => {
       const shortTitle = v.title.slice(0, 30);
-      if (isMusic) {
-        buttons.push([Markup.button.callback(`🎵 ${shortTitle}`, `dl_m_${v.videoId}`)]);
-      } else {
-        buttons.push([Markup.button.callback(`🎥 ${shortTitle}`, `dl_v_${v.videoId}`)]);
-      }
+      buttons.push([Markup.button.callback(isMusic ? `🎵 ${shortTitle}` : `🎥 ${shortTitle}`, isMusic ? `dl_m_${v.videoId}` : `dl_v_${v.videoId}`)]);
     });
-
-    return ctx.reply("📋 Natijalar topildi. Yuklab olish uchun ustiga bosing:", Markup.inlineKeyboard(buttons));
-  } catch (err) {
-    ctx.reply("Qidiruvda xatolik yuz berdi.");
-  }
+    return ctx.reply("📋 Natijalar topildi. Tanlang:", Markup.inlineKeyboard(buttons));
+  } catch (err) { ctx.reply("Qidiruvda xatolik."); }
 }
 
 bot.on("text", async (ctx) => {
   const text = ctx.message.text;
-
   if (text === "🎬 Kino (Trailer) qidirish" || text === "🎵 Musiqa qidirish") return;
-
   if (/https?:\/\//.test(text)) {
     ctx.session.link = text;
-    return ctx.reply(
-      "📥 Havola aniqlandi. Formatni tanlang:",
-      Markup.inlineKeyboard([
-        [
-          Markup.button.callback("🎥 Video yuklash", "link_video"),
-          Markup.button.callback("🎵 MP3 yuklash", "link_audio")
-        ]
-      ])
-    );
+    return ctx.reply("📥 Formatni tanlang:", Markup.inlineKeyboard([[Markup.button.callback("🎥 Video", "link_video"), Markup.button.callback("🎵 MP3", "link_audio")]]));
   }
-
-  if (!ctx.session.mode) {
-    return ctx.reply("Avval pastdagi menyudan Kino yoki Musiqa bo'limini tanlang.", mainMenu);
-  }
-
-  const q = ctx.session.mode === "movie" ? text + " trailer" : text;
-  await search(ctx, q);
+  if (!ctx.session.mode) return ctx.reply("Avval menyudan bo'limni tanlang.", mainMenu);
+  await search(ctx, ctx.session.mode === "movie" ? text + " trailer" : text);
 });
 
 bot.action(/dl_(m|v)_(.+)/, async (ctx) => {
   await ctx.answerCbQuery();
   const typeFlag = ctx.match[1]; 
   const videoId = ctx.match[2];  
-  
   const url = `https://youtube.com/watch?v=${videoId}`;
-  
   let mediaTitle = "Media Fayl";
   try {
     const videoInfo = await yts({ videoId: videoId });
     if (videoInfo && videoInfo.title) mediaTitle = videoInfo.title;
   } catch (_) {}
-
-  addJob({
-    ctx,
-    url,
-    type: typeFlag === "m" ? "audio" : "video",
-    title: mediaTitle
-  });
+  addJob({ ctx, url, type: typeFlag === "m" ? "audio" : "video", title: mediaTitle });
 });
 
 bot.action("link_video", async (ctx) => {
   await ctx.answerCbQuery();
-  if (!ctx.session.link) return ctx.reply("❌ Havola topilmadi. Qayta yuboring.");
-  addJob({ ctx, url: ctx.session.link, type: "video", title: "Video Fayl" });
+  addJob({ ctx, url: ctx.session.link, type: "video", title: "Video" });
 });
 
 bot.action("link_audio", async (ctx) => {
   await ctx.answerCbQuery();
-  if (!ctx.session.link) return ctx.reply("❌ Havola topilmadi. Qayta yuboring.");
-  addJob({ ctx, url: ctx.session.link, type: "audio", title: "Audio Fayl" });
+  addJob({ ctx, url: ctx.session.link, type: "audio", title: "Audio" });
 });
 
-// ================= SELF-PING (KEEP ALIVE) =================
 setInterval(() => {
-  const myUrl = "https://telegrambot-production.up.railway.app"; 
-  axios.get(myUrl)
-    .then(() => console.log("⏰ Self-ping muvaffaqiyatli: Bot uyg'oq!"))
-    .catch((err) => console.log("⏰ Self-pingda xato:", err.message));
-}, 600000); 
+  axios.get("https://telegrambot-production.up.railway.app").catch(() => {});
+}, 600000);
 
-// ================= SAFE LAUNCH =================
 bot.launch({ allowedUpdates: [], dropPendingUpdates: true })
   .then(() => console.log("🔥 V13 PRO STABLE READY"))
-  .catch((err) => console.error("❌ Botni ishga tushirishda xatolik:", err.message));
-
-process.once("SIGINT", () => bot.stop("SIGINT"));
-process.once("SIGTERM", () => bot.stop("SIGTERM"));
+  .catch((err) => console.error("❌ Xatolik:", err.message));
