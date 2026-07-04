@@ -154,8 +154,33 @@ bot.command("statistika", async (ctx) => {
   } catch (err) { ctx.reply("Xatolik yuz berdi."); }
 });
 
-bot.hears("🎬 Kino (Trailer) qidirish", (ctx) => { ctx.session.mode = "movie"; ctx.reply("🎬 Kino nomini yozing:"); });
-bot.hears("🎵 Musiqa qidirish", (ctx) => { ctx.session.mode = "music"; ctx.reply("🎵 Qo‘shiq nomini yozing:"); });
+// ================= SECTIONS WITH INLINE BUTTONS =================
+
+bot.hears("🎵 Musiqa qidirish", (ctx) => {
+  ctx.session.mode = "music";
+  
+  // Musiqa bo'limi uchun tayyor ommabop qidiruv inline tugmalari
+  const musicInline = Markup.inlineKeyboard([
+    [Markup.button.callback("🔥 Trend qo'shiqlar", "fast_search_Trend qo'shiqlar 2026")],
+    [Markup.button.callback("🎸 Uzbek Tarona", "fast_search_Uzbek taronalari")],
+    [Markup.button.callback("💻 Chill / Lofi", "fast_search_Lofi chill music")]
+  ]);
+
+  ctx.reply("🎵 Qo‘shiq yoki xonanda nomini yozing yoki quyidagi tayyor janrlardan birini tanlang:", musicInline);
+});
+
+bot.hears("🎬 Kino (Trailer) qidirish", (ctx) => {
+  ctx.session.mode = "movie";
+
+  // Kino bo'limi uchun tayyor ommabop qidiruv inline tugmalari
+  const movieInline = Markup.inlineKeyboard([
+    [Markup.button.callback("🍿 Yangi Kinolar 2026", "fast_search_Yangi kinolar 2026")],
+    [Markup.button.callback("💥 Marvel / DC", "fast_search_Marvel DC movie trailer")],
+    [Markup.button.callback("🎭 Tarjima Kinolar", "fast_search_Uzbek tilida tarjima kinolar")]
+  ]);
+
+  ctx.reply("🎬 Kino nomini yozing yoki tayyor ro'yxatni ko'rish uchun tugmani bosing:", movieInline);
+});
 
 async function search(ctx, q) {
   try {
@@ -172,7 +197,6 @@ async function search(ctx, q) {
   } catch (err) { ctx.reply("Qidiruvda xatolik."); }
 }
 
-// Havoladan Video ID sini ajratib olish funksiyasi
 function getYouTubeId(url) {
   const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
   const match = url.match(regExp);
@@ -187,7 +211,6 @@ bot.on("text", async (ctx) => {
     const vId = getYouTubeId(text);
     if (!vId) return ctx.reply("❌ Faqat to'g'ri YouTube havolalarini qo'llab-quvvatlayman.");
     
-    // Tugmalarning o'ziga video ID yashirildi! Endi adashmaydi.
     return ctx.reply(
       "📥 Havola aniqlandi. Formatni tanlang:", 
       Markup.inlineKeyboard([
@@ -201,6 +224,13 @@ bot.on("text", async (ctx) => {
   
   if (!ctx.session.mode) return ctx.reply("Avval menyudan bo'limni tanlang.", mainMenu);
   await search(ctx, ctx.session.mode === "movie" ? text + " trailer" : text);
+});
+
+// Tayyor tezkor qidiruv inline tugmalari uchun handler
+bot.action(/fast_search_(.+)/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const query = ctx.match[1];
+  await search(ctx, query);
 });
 
 // Qidiruv natijalari uchun action handler
@@ -217,7 +247,7 @@ bot.action(/dl_(m|v)_(.+)/, async (ctx) => {
   addJob({ ctx, url, type: typeFlag === "m" ? "audio" : "video", title: mediaTitle });
 });
 
-// To'g'ridan-to'g'ri yuborilgan havolalar uchun action handler (Adashmaydigan yangi tizim)
+// To'g'ridan-to'g'ri yuborilgan havolalar uchun action handler
 bot.action(/lnk_(v|m)_(.+)/, async (ctx) => {
   await ctx.answerCbQuery();
   const typeFlag = ctx.match[1];
