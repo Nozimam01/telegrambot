@@ -17,8 +17,7 @@ const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => console.log("PORT:", PORT));
 
 // ================= DATABASE (MONGODB) =================
-const MONGO_URI = process.env.MONGO_URI || "mongodb+srv://Nozimam_01:Nozima2026@cluster0.ixwxk0c.mongodb.net/?appName=Cluster0";
-
+const MONGO_URI = process.env.MONGO_URI || "mongodb+srv://botuser:botpass2026@cluster0.ixwxk0c.mongodb.net/?appName=Cluster0";
 mongoose.connect(MONGO_URI)
   .then(() => console.log("🍃 MongoDB ma'lumotlar bazasiga muvaffaqiyatli ulandi!"))
   .catch((err) => console.error("❌ MongoDB ulanishida xatolik:", err.message));
