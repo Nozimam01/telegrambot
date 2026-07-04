@@ -107,7 +107,6 @@ function download(url, type, fileName) {
     const ext = type === "audio" ? "mp3" : "mp4";
     const outPath = path.join(DIR, `${fileName}.${ext}`);
     
-    // Npx orqali yt-dlp ni build qimasdan to'g'ridan-to'g'ri chaqiramiz
     let cmd = `npx yt-dlp --no-playlist --no-warnings --quiet --max-filesize 2G -o "${outPath}" "${url}"`;
     
     if (type === "audio") {
@@ -173,17 +172,38 @@ async function search(ctx, q) {
   } catch (err) { ctx.reply("Qidiruvda xatolik."); }
 }
 
+// Havoladan Video ID sini ajratib olish funksiyasi
+function getYouTubeId(url) {
+  const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+  const match = url.match(regExp);
+  return (match && match[2].length === 11) ? match[2] : null;
+}
+
 bot.on("text", async (ctx) => {
   const text = ctx.message.text;
   if (text === "🎬 Kino (Trailer) qidirish" || text === "🎵 Musiqa qidirish") return;
+  
   if (/https?:\/\//.test(text)) {
-    ctx.session.link = text;
-    return ctx.reply("📥 Formatni tanlang:", Markup.inlineKeyboard([[Markup.button.callback("🎥 Video", "link_video"), Markup.button.callback("🎵 MP3", "link_audio")]]));
+    const vId = getYouTubeId(text);
+    if (!vId) return ctx.reply("❌ Faqat to'g'ri YouTube havolalarini qo'llab-quvvatlayman.");
+    
+    // Tugmalarning o'ziga video ID yashirildi! Endi adashmaydi.
+    return ctx.reply(
+      "📥 Havola aniqlandi. Formatni tanlang:", 
+      Markup.inlineKeyboard([
+        [
+          Markup.button.callback("🎥 Video yuklash", `lnk_v_${vId}`), 
+          Markup.button.callback("🎵 MP3 yuklash", `lnk_m_${vId}`)
+        ]
+      ])
+    );
   }
+  
   if (!ctx.session.mode) return ctx.reply("Avval menyudan bo'limni tanlang.", mainMenu);
   await search(ctx, ctx.session.mode === "movie" ? text + " trailer" : text);
 });
 
+// Qidiruv natijalari uchun action handler
 bot.action(/dl_(m|v)_(.+)/, async (ctx) => {
   await ctx.answerCbQuery();
   const typeFlag = ctx.match[1]; 
@@ -197,14 +217,20 @@ bot.action(/dl_(m|v)_(.+)/, async (ctx) => {
   addJob({ ctx, url, type: typeFlag === "m" ? "audio" : "video", title: mediaTitle });
 });
 
-bot.action("link_video", async (ctx) => {
+// To'g'ridan-to'g'ri yuborilgan havolalar uchun action handler (Adashmaydigan yangi tizim)
+bot.action(/lnk_(v|m)_(.+)/, async (ctx) => {
   await ctx.answerCbQuery();
-  addJob({ ctx, url: ctx.session.link, type: "video", title: "Video" });
-});
+  const typeFlag = ctx.match[1];
+  const videoId = ctx.match[2];
+  const url = `https://youtube.com/watch?v=${videoId}`;
+  
+  let mediaTitle = typeFlag === "m" ? "Audio Fayl" : "Video Fayl";
+  try {
+    const videoInfo = await yts({ videoId: videoId });
+    if (videoInfo && videoInfo.title) mediaTitle = videoInfo.title;
+  } catch (_) {}
 
-bot.action("link_audio", async (ctx) => {
-  await ctx.answerCbQuery();
-  addJob({ ctx, url: ctx.session.link, type: "audio", title: "Audio" });
+  addJob({ ctx, url, type: typeFlag === "m" ? "audio" : "video", title: mediaTitle });
 });
 
 setInterval(() => {
