@@ -127,6 +127,29 @@ function download(url, type, fileName) {
   });
 }
 
+
+// Barcha kelayotgan xabarlarni tekshirish va foydalanuvchini avtomatik bazaga qo'shish
+bot.use(async (ctx, next) => {
+  ctx.session ||= {};
+  
+  if (ctx.from) {
+    try {
+      const from = ctx.from;
+      await User.findOneAndUpdate(
+        { telegramId: from.id },
+        { 
+          username: from.username ? `@${from.username}` : "Mavjud emas", 
+          firstName: from.first_name || "Ismsiz" 
+        },
+        { upsert: true, returnDocument: 'after' }
+      );
+    } catch (err) {
+      console.error("Foydalanuvchini avto-saqlashda xatolik:", err.message);
+    }
+  }
+  return next();
+});
+
 // ================= BOT COMMANDS =================
 bot.start(async (ctx) => {
   ctx.session = {};
@@ -164,7 +187,7 @@ bot.command("users", async (ctx) => {
 
     let msg = "👥 <b>Bot foydalanuvchilari ro'yxati:</b>\n\n";
     users.forEach((user, index) => {
-      const safeName = (user.firstName || "Ismsiz")
+      const safeName = (user.firstName || "Nozima")
         .replace(/</g, "&lt;")
         .replace(/>/g, "&gt;");
         
