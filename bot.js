@@ -122,12 +122,18 @@ async function worker() {
 }
 
 // ================= DOWNLOAD FUNCTION =================
+f// ================= DOWNLOAD FUNCTION =================
 function download(url, type, fileName) {
   return new Promise((resolve, reject) => {
     const ext = type === "audio" ? "mp3" : "mp4";
     const outPath = path.join(DIR, `${fileName}.${ext}`);
     
-    let cmd = `npx yt-dlp --no-playlist --no-warnings --quiet --max-filesize 2G -o "${outPath}" "${url}"`;
+    // Instagram blokirovkasini chetlab o'tish uchun maxsus brauzer imitatsiyasi qo'shildi
+    let cmd = `npx yt-dlp --no-playlist --no-warnings --quiet --max-filesize 2G ` +
+              `--user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" ` +
+              `--add-header "Accept-Language:en-US,en;q=0.9" ` +
+              `--add-header "Sec-Ch-Ua-Platform:\\"Windows\\"" ` +
+              `-o "${outPath}" "${url}"`;
     
     if (type === "audio") {
       cmd += ` -x --audio-format mp3 --audio-quality 5`;
@@ -142,7 +148,6 @@ function download(url, type, fileName) {
     });
   });
 }
-
 // ================= BOT COMMANDS =================
 bot.start((ctx) => {
   ctx.session = {};
