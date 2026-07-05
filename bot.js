@@ -42,6 +42,26 @@ bot.use((ctx, next) => {
   return next();
 });
 
+// Foydalanuvchilarni avtomatik bazaga yozish
+bot.use(async (ctx, next) => {
+  if (ctx.from) {
+    try {
+      const from = ctx.from;
+      await User.findOneAndUpdate(
+        { telegramId: from.id },
+        { 
+          username: from.username ? `@${from.username}` : "Mavjud emas", 
+          firstName: from.first_name || "Ismsiz" 
+        },
+        { upsert: true, returnDocument: 'after' }
+      );
+    } catch (err) {
+      console.error("Foydalanuvchini saqlashda xatolik:", err.message);
+    }
+  }
+  return next();
+});
+
 const mainMenu = Markup.keyboard([
   ["🎵 Musiqa qidirish", "🎬 Kino (Trailer) qidirish"]
 ]).resize();
@@ -63,7 +83,7 @@ async function worker() {
 
   while (queue.length) {
     const job = queue.shift();
-    const msg = await job.ctx.reply("⏳ Fayl yuklanmoqda, kuting...").catch(() => null);
+    const msg = await job.ctx.reply("⏳ Media fayl yuklanmoqda, kuting...").catch(() => null);
 
     try {
       const cleanTitle = (job.title || "Media").replace(/[\\/:*?"<>|]/g, " ").trim();
@@ -73,7 +93,7 @@ async function worker() {
       const file = await download(job.url, job.type, safeFileName);
 
       if (msg) {
-        await job.ctx.telegram.editMessageText(job.ctx.chat.id, msg.message_id, null, "🚀 Fayl tayyor! Telegramga yuborilmoqda...").catch(() => {});
+        await job.ctx.telegram.editMessageText(job.ctx.chat.id, msg.message_id, null, "🚀 Telegramga yuborilmoqda...").catch(() => {});
       }
 
       if (job.type === "audio") {
@@ -85,7 +105,7 @@ async function worker() {
       } else {
         await job.ctx.replyWithVideo({
           source: file,
-          caption: `🎬 Barcha ijtimoiy tarmoqlardan yuklovchi bot`
+          caption: `🎬 Barcha tarmoqlardan yuklovchi bot`
         });
       }
 
@@ -93,7 +113,7 @@ async function worker() {
       if (msg) await job.ctx.deleteMessage(msg.message_id).catch(() => {});
     } catch (e) {
       console.log("DOWNLOAD ERROR DETAILS:", e);
-      job.ctx.reply(`❌ Yuklab bo'lmadi. Havola noto'g'ri, yopiq profildan olingan yoki yuklash limiti oshib ketgan.`);
+      job.ctx.reply(`❌ Yuklab bo'lmadi. Havola noto'g'ri yoki yopiq profildan.`);
       if (msg) await job.ctx.deleteMessage(msg.message_id).catch(() => {});
     }
   }
@@ -116,114 +136,48 @@ function download(url, type, fileName) {
     }
 
     exec(cmd, (error, stdout, stderr) => {
-      if (error) {
-        return reject(new Error(`yt-dlp xatosi: ${stderr || error.message}`));
-      }
-      if (!fs.existsSync(outPath)) {
-        return reject(new Error("Fayl topilmadi"));
-      }
+      if (error) return reject(new Error(`yt-dlp xatosi: ${stderr || error.message}`));
+      if (!fs.existsSync(outPath)) return reject(new Error("Fayl topilmadi"));
       resolve(outPath);
     });
   });
 }
 
-
-// Barcha kelayotgan xabarlarni tekshirish va foydalanuvchini avtomatik bazaga qo'shish
-bot.use(async (ctx, next) => {
-  ctx.session ||= {};
-  
-  if (ctx.from) {
-    try {
-      const from = ctx.from;
-      await User.findOneAndUpdate(
-        { telegramId: from.id },
-        { 
-          username: from.username ? `@${from.username}` : "Mavjud emas", 
-          firstName: from.first_name || "Ismsiz" 
-        },
-        { upsert: true, returnDocument: 'after' }
-      );
-    } catch (err) {
-      console.error("Foydalanuvchini avto-saqlashda xatolik:", err.message);
-    }
-  }
-  return next();
-});
-
 // ================= BOT COMMANDS =================
-bot.start(async (ctx) => {
+bot.start((ctx) => {
   ctx.session = {};
-  try {
-    const from = ctx.from;
-    await User.findOneAndUpdate(
-      { telegramId: from.id },
-      { 
-        username: from.username ? `@${from.username}` : "Mavjud emas", 
-        firstName: from.first_name || "Nozima" 
-      },
-      { upsert: true, returnDocument: 'after' }
-    );
-  } catch (err) {
-    console.error("Foydalanuvchini saqlashda xatolik:", err.message);
-  }
   ctx.reply("🚀 V13 MULTI DOWNLOADER BOT\n\nYouTube, TikTok, Instagram yoki Facebook havolasini yuboring!", mainMenu);
-});
-
-bot.command("statistika", async (ctx) => {
-  if (ctx.from.id !== Number(ADMIN_ID)) return ctx.reply("❌ Faqat admin uchun.");
-  try {
-    const totalUsers = await User.countDocuments();
-    ctx.reply(`👥 Jami foydalanuvchilar soni: *${totalUsers} ta*`, { parse_mode: "Markdown" });
-  } catch (err) { ctx.reply("Xatolik yuz berdi."); }
 });
 
 bot.command("users", async (ctx) => {
   if (ctx.from.id !== Number(ADMIN_ID)) return ctx.reply("❌ Faqat admin uchun.");
-  
   try {
     const users = await User.find().sort({ joinedAt: -1 });
-    
     if (!users.length) return ctx.reply("👥 Baza hozircha bo'sh.");
 
     let msg = "👥 <b>Bot foydalanuvchilari ro'yxati:</b>\n\n";
     users.forEach((user, index) => {
-      const safeName = (user.firstName || "Nozima")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;");
-        
-      // ID raqamini olib tashladik, faqat Ism va Username qoldi
+      const safeName = (user.firstName || "Ismsiz").replace(/</g, "&lt;").replace(/>/g, "&gt;");
       msg += `${index + 1}. 👤 <b>${safeName}</b> - ${user.username}\n`;
     });
 
     if (msg.length > 4000) {
       const chunks = msg.match(/[\s\S]{1,4000}/g);
-      for (const chunk of chunks) {
-        await ctx.reply(chunk, { parse_mode: "HTML" });
-      }
+      for (const chunk of chunks) await ctx.reply(chunk, { parse_mode: "HTML" });
     } else {
       ctx.reply(msg, { parse_mode: "HTML" });
     }
-  } catch (err) {
-    console.error("Ro'yxatni olishda xatolik:", err.message);
-    ctx.reply("❌ Foydalanuvchilar ro'yxatini yuklashda xatolik yuz berdi.");
-  }
+  } catch (err) { ctx.reply("❌ Xatolik."); }
 });
 
 bot.hears("🎵 Musiqa qidirish", (ctx) => {
   ctx.session.mode = "music";
-  const musicInline = Markup.inlineKeyboard([
-    [Markup.button.callback("🔥 Trend qo'shiqlar", "fast_search_Trend qo'shiqlar 2026")],
-    [Markup.button.callback("🎸 Uzbek Tarona", "fast_search_Uzbek taronalari")]
-  ]);
-  ctx.reply("🎵 Qo‘shiq yoki xonanda nomini yozing:", musicInline);
+  ctx.reply("🎵 Qo‘shiq yoki xonanda nomini yozing:");
 });
 
 bot.hears("🎬 Kino (Trailer) qidirish", (ctx) => {
   ctx.session.mode = "movie";
-  const movieInline = Markup.inlineKeyboard([
-    [Markup.button.callback("🍿 Yangi Kinolar 2026", "fast_search_Yangi kinolar 2026")]
-  ]);
-  ctx.reply("🎬 Kino nomini yozing:", movieInline);
+  ctx.reply("🎬 Kino nomini yozing:");
 });
 
 async function search(ctx, q) {
@@ -237,24 +191,28 @@ async function search(ctx, q) {
       const shortTitle = v.title.slice(0, 30);
       buttons.push([Markup.button.callback(isMusic ? `🎵 ${shortTitle}` : `🎥 ${shortTitle}`, isMusic ? `dl_m_${v.videoId}` : `dl_v_${v.videoId}`)]);
     });
-    return ctx.reply("📋 Natijalar topildi. Tanlang:", Markup.inlineKeyboard(buttons));
+    return ctx.reply("📋 Natijalar topildi. Yuklash uchun bosing:", Markup.inlineKeyboard(buttons));
   } catch (err) { ctx.reply("Qidiruvda xatolik."); }
 }
 
+// LINKLARNI QABUL QILISH VA FORMAT SO'RASH QISMI
 bot.on("text", async (ctx) => {
   const text = ctx.message.text.trim();
   if (text === "🎬 Kino (Trailer) qidirish" || text === "🎵 Musiqa qidirish") return;
   
   if (/https?:\/\//.test(text)) {
-    const encodedUrl = Buffer.from(text).toString('base64').replace(/=/g, '');
-    ctx.session[encodedUrl] = text; 
+    // 64 baytdan oshmaydigan juda qisqa random ID yaratamiz
+    const shortKey = crypto.randomUUID().slice(0, 8);
+    
+    // Asl uzun havolani session (vaqtinchalik xotira) ichiga shu qisqa kalit bilan saqlaymiz
+    ctx.session[shortKey] = text;
 
     return ctx.reply(
       "📥 Havola aniqlandi. Formatni tanlang:", 
       Markup.inlineKeyboard([
         [
-          Markup.button.callback("🎥 Video", `uni_v_${encodedUrl}`), 
-          Markup.button.callback("🎵 MP3", `uni_m_${encodedUrl}`)
+          Markup.button.callback("🎥 Video (MP4)", `fmt_v_${shortKey}`), 
+          Markup.button.callback("🎵 Audio (MP3)", `fmt_m_${shortKey}`)
         ]
       ])
     );
@@ -264,9 +222,25 @@ bot.on("text", async (ctx) => {
   await search(ctx, ctx.session.mode === "movie" ? text + " trailer" : text);
 });
 
-bot.action(/fast_search_(.+)/, async (ctx) => {
+// FORMAT TUGMASI BOSILGANDA ISHLAYDIGAN MANTIQ
+bot.action(/fmt_(v|m)_(.+)/, async (ctx) => {
   await ctx.answerCbQuery();
-  await search(ctx, ctx.match[1]);
+  const typeFlag = ctx.match[1]; // v yoki m
+  const shortKey = ctx.match[2]; // qisqa kalit
+  
+  // Session xotirasidan asl uzun havolani qaytarib olamiz
+  const originalUrl = ctx.session[shortKey];
+  
+  if (!originalUrl) {
+    return ctx.reply("❌ Havola muddati o'tgan yoki eskirgan. Iltimos, linkni qaytadan yuboring.");
+  }
+
+  addJob({ 
+    ctx, 
+    url: originalUrl, 
+    type: typeFlag === "m" ? "audio" : "video", 
+    title: typeFlag === "m" ? "Audio" : "Video" 
+  });
 });
 
 bot.action(/dl_(m|v)_(.+)/, async (ctx) => {
@@ -277,19 +251,6 @@ bot.action(/dl_(m|v)_(.+)/, async (ctx) => {
   addJob({ ctx, url, type: typeFlag === "m" ? "audio" : "video", title: "Media Fayl" });
 });
 
-bot.action(/uni_(v|m)_(.+)/, async (ctx) => {
-  await ctx.answerCbQuery();
-  const typeFlag = ctx.match[1];
-  const encodedUrl = ctx.match[2];
-  const url = ctx.session[encodedUrl];
-  
-  if (!url) {
-    return ctx.reply("❌ Havola muddati eskirgan. Iltimos, qaytadan yuboring.");
-  }
-
-  addJob({ ctx, url, type: typeFlag === "m" ? "audio" : "video", title: typeFlag === "m" ? "Audio" : "Video" });
-});
-
 bot.launch({ allowedUpdates: [], dropPendingUpdates: true })
-  .then(() => console.log("🔥 V13 PRO STABLE READY"))
+  .then(() => console.log("🔥 V13 PRO FORMAT-SELECTOR READY"))
   .catch((err) => console.error("❌ Xatolik:", err.message));
