@@ -85,7 +85,7 @@ async function worker() {
       } else {
         await job.ctx.replyWithVideo({
           source: file,
-          caption: `🎬 ${cleanTitle}`
+          caption: `🎬 Barcha ijtimoiy tarmoqlardan yuklovchi bot`
         });
       }
 
@@ -93,7 +93,7 @@ async function worker() {
       if (msg) await job.ctx.deleteMessage(msg.message_id).catch(() => {});
     } catch (e) {
       console.log("DOWNLOAD ERROR DETAILS:", e);
-      job.ctx.reply(`❌ Yuklab bo'lmadi. Sababi: ${e.message || e}`);
+      job.ctx.reply(`❌ Yuklab bo'lmadi. Havola noto'g'ri yoki yopiq profildan olingan.`);
       if (msg) await job.ctx.deleteMessage(msg.message_id).catch(() => {});
     }
   }
@@ -107,13 +107,14 @@ function download(url, type, fileName) {
     const ext = type === "audio" ? "mp3" : "mp4";
     const outPath = path.join(DIR, `${fileName}.${ext}`);
     
+    // Barcha ijtimoiy tarmoqlar (TikTok, Insta, YouTube) uchun umumiy va kuchli yuklash buyrug'i
     let cmd = `npx yt-dlp --no-playlist --no-warnings --quiet --max-filesize 2G -o "${outPath}" "${url}"`;
     
     if (type === "audio") {
       cmd += ` -x --audio-format mp3 --audio-quality 5`;
     } else {
-      // Shorts va barcha turdagi videolar uchun eng ishonchli MP4 formatlar kombinatsiyasi
-      cmd += ` -f "mp4[height<=720]/bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"`;
+      // Instagram va TikTok formatlariga ham mos keladigan universal MP4 sozlamasi
+      cmd += ` -f "mp4/bestvideo+bestaudio/best"`;
     }
 
     exec(cmd, (error, stdout, stderr) => {
@@ -144,7 +145,7 @@ bot.start(async (ctx) => {
   } catch (err) {
     console.error("Foydalanuvchini saqlashda xatolik:", err.message);
   }
-  ctx.reply("🚀 V13 PRO MEDIA BOT\n\nPastdagi menyudan bo'limni tanlang yoki to'g'ridan-to'g'ri YouTube / Shorts havolasini yuboring!", mainMenu);
+  ctx.reply("🚀 V13 MULTI DOWNLOADER BOT\n\nYouTube, TikTok, Instagram yoki Facebook havolasini yuboring!", mainMenu);
 });
 
 bot.command("statistika", async (ctx) => {
@@ -159,20 +160,17 @@ bot.hears("🎵 Musiqa qidirish", (ctx) => {
   ctx.session.mode = "music";
   const musicInline = Markup.inlineKeyboard([
     [Markup.button.callback("🔥 Trend qo'shiqlar", "fast_search_Trend qo'shiqlar 2026")],
-    [Markup.button.callback("🎸 Uzbek Tarona", "fast_search_Uzbek taronalari")],
-    [Markup.button.callback("💻 Chill / Lofi", "fast_search_Lofi chill music")]
+    [Markup.button.callback("🎸 Uzbek Tarona", "fast_search_Uzbek taronalari")]
   ]);
-  ctx.reply("🎵 Qo‘shiq yoki xonanda nomini yozing yoki quyidagi tayyor janrlardan birini tanlang:", musicInline);
+  ctx.reply("🎵 Qo‘shiq yoki xonanda nomini yozing:", musicInline);
 });
 
 bot.hears("🎬 Kino (Trailer) qidirish", (ctx) => {
   ctx.session.mode = "movie";
   const movieInline = Markup.inlineKeyboard([
-    [Markup.button.callback("🍿 Yangi Kinolar 2026", "fast_search_Yangi kinolar 2026")],
-    [Markup.button.callback("💥 Marvel / DC", "fast_search_Marvel DC movie trailer")],
-    [Markup.button.callback("🎭 Tarjima Kinolar", "fast_search_Uzbek tilida tarjima kinolar")]
+    [Markup.button.callback("🍿 Yangi Kinolar 2026", "fast_search_Yangi kinolar 2026")]
   ]);
-  ctx.reply("🎬 Kino nomini yozing yoki tayyor ro'yxatni ko'rish uchun tugmani bosing:", movieInline);
+  ctx.reply("🎬 Kino nomini yozing:", movieInline);
 });
 
 async function search(ctx, q) {
@@ -190,33 +188,31 @@ async function search(ctx, q) {
   } catch (err) { ctx.reply("Qidiruvda xatolik."); }
 }
 
-// Barcha turdagi YouTube va Shorts linklaridan ID ajratish (Xatosiz variant)
-function getYouTubeId(url) {
-  const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=|\/shorts\/)([^#\&\?]*).*/;
-  const match = url.match(regExp);
-  return (match && match[2].trim().length === 11) ? match[2].trim() : null;
-}
-
+// TEXT HANDLER
 bot.on("text", async (ctx) => {
   const text = ctx.message.text.trim();
   if (text === "🎬 Kino (Trailer) qidirish" || text === "🎵 Musiqa qidirish") return;
   
+  // Agar kelgan xabar havola (link) bo'lsa
   if (/https?:\/\//.test(text)) {
-    const vId = getYouTubeId(text);
-    if (!vId) return ctx.reply("❌ Faqat to'g'ri YouTube yoki Shorts havolalarini qo'llab-quvvatlayman.");
+    // Havolani xavfsiz saqlash uchun Base64 formatga o'giramiz (Inline Button limiti uchun)
+    const encodedUrl = Buffer.from(text).toString('base64').replace(/=/g, '');
     
+    // Faqat 60 belgidan oshmaydigan qilib qisqartirilgan ID yaratamiz (Telegram Callback Data cheklovi sababli)
+    ctx.session[encodedUrl] = text; 
+
     return ctx.reply(
       "📥 Havola aniqlandi. Formatni tanlang:", 
       Markup.inlineKeyboard([
         [
-          Markup.button.callback("🎥 Video yuklash", `lnk_v_${vId}`), 
-          Markup.button.callback("🎵 MP3 yuklash", `lnk_m_${vId}`)
+          Markup.button.callback("🎥 Video", `uni_v_${encodedUrl}`), 
+          Markup.button.callback("🎵 MP3", `uni_m_${encodedUrl}`)
         ]
       ])
     );
   }
   
-  if (!ctx.session.mode) return ctx.reply("Avval menyudan bo'limni tanlang.", mainMenu);
+  if (!ctx.session.mode) return ctx.reply("Avval menyudan bo'limni tanlang yoki to'g'ridan-to'g'ri havola yuboring.", mainMenu);
   await search(ctx, ctx.session.mode === "movie" ? text + " trailer" : text);
 });
 
@@ -230,27 +226,28 @@ bot.action(/dl_(m|v)_(.+)/, async (ctx) => {
   const typeFlag = ctx.match[1]; 
   const videoId = ctx.match[2];  
   const url = `https://youtube.com/watch?v=${videoId}`;
-  let mediaTitle = "Media Fayl";
-  try {
-    const videoInfo = await yts({ videoId: videoId });
-    if (videoInfo && videoInfo.title) mediaTitle = videoInfo.title;
-  } catch (_) {}
-  addJob({ ctx, url, type: typeFlag === "m" ? "audio" : "video", title: mediaTitle });
+  addJob({ ctx, url, type: typeFlag === "m" ? "audio" : "video", title: "Media Fayl" });
 });
 
-bot.action(/lnk_(v|m)_(.+)/, async (ctx) => {
+// Universal Link Handler (TikTok, Instagram, YouTube)
+bot.action(/uni_(v|m)_(.+)/, async (ctx) => {
   await ctx.answerCbQuery();
   const typeFlag = ctx.match[1];
-  const videoId = ctx.match[2];
-  const url = `https://youtube.com/watch?v=${videoId}`;
+  const encodedUrl = ctx.match[2];
   
-  let mediaTitle = typeFlag === "m" ? "Audio" : "Video";
-  try {
-    const videoInfo = await yts({ videoId: videoId });
-    if (videoInfo && videoInfo.title) mediaTitle = videoInfo.title;
-  } catch (_) {}
+  // Sessiondan asl havolani qaytarib olamiz
+  const url = ctx.session[encodedUrl];
+  
+  if (!url) {
+    return ctx.reply("❌ Havola muddati eskirgan. Iltimos, havolani qaytadan yuboring.");
+  }
 
-  addJob({ ctx, url, type: typeFlag === "m" ? "audio" : "video", title: mediaTitle });
+  addJob({ 
+    ctx, 
+    url: url, 
+    type: typeFlag === "m" ? "audio" : "video", 
+    title: typeFlag === "m" ? "Audio" : "Video" 
+  });
 });
 
 setInterval(() => {
