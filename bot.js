@@ -5,6 +5,7 @@ const express = require("express");
 const mongoose = require("mongoose");
 const axios = require("axios");
 const yts = require("yt-search");
+const crypto = require("crypto");
 
 // ================= EXPRESS =================
 const app = express();
@@ -143,17 +144,47 @@ async function search(ctx, q) {
   } catch (err) { ctx.reply("Qidiruvda xatolik."); }
 }
 
+// HAVOLA KELGANDA FORMAT SO'RASH MANTIQLARI
 bot.on("text", async (ctx) => {
   const text = ctx.message.text.trim();
   if (text === "🎬 Kino (Trailer) qidirish" || text === "🎵 Musiqa qidirish") return;
   
   if (/https?:\/\//.test(text)) {
-    // To'g'ridan-to'g'ri yuborilgan linklarni avtomatik video formatida yuklaydi
-    return downloadAndSend(ctx, text, false);
+    // 64 baytdan oshmaydigan qisqa tasodifiy kalit yaratamiz
+    const shortKey = crypto.randomUUID().slice(0, 8);
+    
+    // Asl uzun havolani vaqtinchalik xotira (session) ichiga shu kalit bilan saqlaymiz
+    ctx.session[shortKey] = text;
+
+    return ctx.reply(
+      "📥 Havola aniqlandi. Qaysi formatda yuklamoqchisiz?", 
+      Markup.inlineKeyboard([
+        [
+          Markup.button.callback("🎥 Video (MP4)", `fmt_v_${shortKey}`), 
+          Markup.button.callback("🎵 Audio (MP3)", `fmt_m_${shortKey}`)
+        ]
+      ])
+    );
   }
   
   if (!ctx.session.mode) return ctx.reply("Avval menyudan bo'limni tanlang yoki to'g'ridan-to'g'ri havola yuboring.", mainMenu);
   await search(ctx, ctx.session.mode === "movie" ? text + " trailer" : text);
+});
+
+// TUGMA BOSILGANDA ISHLAYDIGAN FORMAT QABUL QILUVCHI
+bot.action(/fmt_(v|m)_(.+)/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const typeFlag = ctx.match[1]; // v yoki m
+  const shortKey = ctx.match[2]; 
+  
+  const originalUrl = ctx.session[shortKey];
+  
+  if (!originalUrl) {
+    return ctx.reply("❌ Havola muddati o'tgan. Iltimos, linkni qaytadan yuboring.");
+  }
+
+  // Tanlangan format bo'yicha yuklashga yuboramiz
+  await downloadAndSend(ctx, originalUrl, typeFlag === "m");
 });
 
 bot.action(/dl_(m|v)_(.+)/, async (ctx) => {
@@ -166,5 +197,5 @@ bot.action(/dl_(m|v)_(.+)/, async (ctx) => {
 });
 
 bot.launch({ allowedUpdates: [], dropPendingUpdates: true })
-  .then(() => console.log("🔥 V13 PRO COMPLETE SYSTEM READY"))
+  .then(() => console.log("🔥 V13 PRO COMPLETE SYSTEM WITH FORMAT SELECTOR READY"))
   .catch((err) => console.error("❌ Xatolik:", err.message));
