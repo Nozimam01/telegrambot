@@ -139,29 +139,44 @@ async function downloadAndSend(ctx, url, isAudio = false) {
 }
 
 // ================= 🔍 GOOGLE YOUTUBE API SEARCH =================
+// ================= 🔍 GOOGLE YOUTUBE API SEARCH (SMART BACKUP) =================
 async function searchYouTube(ctx, query) {
   try {
-    if (!process.env.YOUTUBE_API_KEY) return ctx.reply("❌ YOUTUBE_API_KEY kiritilmagan.");
+    // Agar .env dan topolmasa, siz yuqorida bergandek birinchi kiritgan kalitni qattiq (hardcode) yozib ketamiz
+    const API_KEY = process.env.YOUTUBE_API_KEY || "AIzaSyBQt88s7Z8CZ9IsnHl_LuTU1ARxtme8s1U";
 
-    const searchUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&maxResults=5&q=${encodeURIComponent(query)}&type=video&key=${process.env.YOUTUBE_API_KEY}`;
+    if (!API_KEY || API_KEY.startsWith("YOUR_")) {
+      return ctx.reply("❌ Tizimda YouTube API Key topilmadi. Iltimos kalitni tekshiring.");
+    }
+
+    const searchUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&maxResults=5&q=${encodeURIComponent(query)}&type=video&key=${API_KEY}`;
     const response = await axios.get(searchUrl);
 
-    if (!response.data.items || response.data.items.length === 0) return ctx.reply("Hech narsa topilmadi 😕");
+    if (!response.data.items || response.data.items.length === 0) {
+      return ctx.reply("Hech narsa topilmadi 😕");
+    }
 
     const buttons = [];
     const isMusic = ctx.session.mode === "music";
 
     response.data.items.forEach((item) => {
       const videoId = item.id.videoId;
-      const title = item.snippet.title;
+      if (!videoId) return; // Agar videoId bo'lmasa, tashlab ketadi (masalan, kanal bo'lsa)
+      
+      const title = item.snippet.title || "Musiqa";
       const shortTitle = title.length > 25 ? title.slice(0, 22) + "..." : title;
 
       buttons.push([Markup.button.callback(isMusic ? `🎵 ${shortTitle}` : `🎥 ${shortTitle}`, isMusic ? `dl_m_${videoId}` : `dl_v_${videoId}`)]);
     });
 
+    if (buttons.length === 0) {
+      return ctx.reply("Mos keladigan videolar topilmadi 😕");
+    }
+
     return ctx.reply("📋 Natijalar topildi. Formatni tanlang:", Markup.inlineKeyboard(buttons));
   } catch (err) {
-    ctx.reply("⚠️ Qidiruv xizmati vaqtincha band.");
+    console.error("YouTube Search Error:", err.response ? err.response.data : err.message);
+    ctx.reply("⚠️ YouTube qidiruv tizimi vaqtincha band yoki kalit limiti tugagan.");
   }
 }
 
