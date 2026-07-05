@@ -136,7 +136,7 @@ bot.start(async (ctx) => {
       { telegramId: from.id },
       { 
         username: from.username ? `@${from.username}` : "Mavjud emas", 
-        firstName: from.first_name || "Ismsiz" 
+        firstName: from.first_name || "Nozima" 
       },
       { upsert: true, returnDocument: 'after' }
     );
