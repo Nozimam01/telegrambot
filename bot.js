@@ -156,25 +156,33 @@ bot.command("statistika", async (ctx) => {
 
 bot.command("users", async (ctx) => {
   if (ctx.from.id !== Number(ADMIN_ID)) return ctx.reply("❌ Faqat admin uchun.");
+  
   try {
     const users = await User.find().sort({ joinedAt: -1 });
+    
     if (!users.length) return ctx.reply("👥 Baza hozircha bo'sh.");
 
-    let msg = "👥 *Bot foydalanuvchilari ro'yxati:*\n\n";
+    let msg = "👥 <b>Bot foydalanuvchilari ro'yxati:</b>\n\n";
     users.forEach((user, index) => {
-      msg += `${index + 1}. 👤 *${user.firstName}* - ${user.username}\n   └ ID: \`${user.telegramId}\`\n\n`;
+      // Ismdagi < va > belgilarini HTML buzilmasligi uchun tozalaymiz
+      const safeName = (user.firstName || "Ismsiz")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+        
+      msg += `${index + 1}. 👤 <b>${safeName}</b> - ${user.username}\n   └ ID: <code>${user.telegramId}</code>\n\n`;
     });
 
     if (msg.length > 4000) {
       const chunks = msg.match(/[\s\S]{1,4000}/g);
       for (const chunk of chunks) {
-        await ctx.reply(chunk, { parse_mode: "Markdown" });
+        await ctx.reply(chunk, { parse_mode: "HTML" });
       }
     } else {
-      ctx.reply(msg, { parse_mode: "Markdown" });
+      ctx.reply(msg, { parse_mode: "HTML" });
     }
   } catch (err) {
-    ctx.reply("❌ Ro'yxatni yuklashda xatolik yuz berdi.");
+    console.error("Ro'yxatni olishda xatolik:", err.message);
+    ctx.reply("❌ Foydalanuvchilar ro'yxatini yuklashda xatolik yuz berdi.");
   }
 });
 
