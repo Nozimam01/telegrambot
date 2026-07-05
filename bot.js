@@ -164,12 +164,12 @@ bot.command("users", async (ctx) => {
 
     let msg = "👥 <b>Bot foydalanuvchilari ro'yxati:</b>\n\n";
     users.forEach((user, index) => {
-      // Ismdagi < va > belgilarini HTML buzilmasligi uchun tozalaymiz
       const safeName = (user.firstName || "Ismsiz")
         .replace(/</g, "&lt;")
         .replace(/>/g, "&gt;");
         
-      msg += `${index + 1}. 👤 <b>${safeName}</b> - ${user.username}\n   └ ID: <code>${user.telegramId}</code>\n\n`;
+      // ID raqamini olib tashladik, faqat Ism va Username qoldi
+      msg += `${index + 1}. 👤 <b>${safeName}</b> - ${user.username}\n`;
     });
 
     if (msg.length > 4000) {
