@@ -39,7 +39,6 @@ bot.use((ctx, next) => {
   return next();
 });
 
-// Foydalanuvchini avtomatik saqlash
 bot.use(async (ctx, next) => {
   if (ctx.from) {
     try {
@@ -63,7 +62,6 @@ const mainMenu = Markup.keyboard([
   ["🎵 Musiqa qidirish", "🎬 Kino (Trailer) qidirish"]
 ]).resize();
 
-// ================= BOT COMMANDS =================
 bot.start((ctx) => {
   ctx.session = {};
   ctx.reply("🚀 V13 MULTI DOWNLOADER BOT\n\nYouTube, Shorts, TikTok, Instagram yoki Facebook havolasini yuboring!", mainMenu);
@@ -100,32 +98,69 @@ bot.hears("🎬 Kino (Trailer) qidirish", (ctx) => {
   ctx.reply("🎬 Kino nomini yozing:");
 });
 
-// MULTIMEDIA YUKLASH FUNKSIYASI (UNIVERSAL API)
+// MULTIMEDIA YUKLASH FUNKSIYASI (IKKITALIK ZAXIRA TIZIMI BILAN)
 async function downloadAndSend(ctx, url, isAudio = false) {
   const waiting = await ctx.reply("⏳ Media qayta ishlanmoqda, kuting...").catch(() => null);
+  
+  // 1-URUNISH: Cobalt API orqali
   try {
     const response = await axios.post('https://api.cobalt.tools/api/json', {
       url: url,
       vQuality: "720",
       isAudioOnly: isAudio
     }, {
-      headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' }
+      headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
+      timeout: 10000 // 10 soniya kutish
     });
 
     if (response.data && response.data.url) {
       if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "🚀 Telegramga yuborilmoqda...").catch(() => {});
-      
       if (isAudio) {
         await ctx.replyWithAudio({ url: response.data.url });
       } else {
         await ctx.replyWithVideo({ url: response.data.url }, { caption: "🎬 Yuklab olindi!" });
       }
       if (waiting) await ctx.deleteMessage(waiting.message_id).catch(() => {});
-    } else {
-      throw new Error("Havola topilmadi");
+      return; // Agar muvaffaqiyatli bo'lsa funksiyani to'xtatamiz
     }
   } catch (error) {
-    if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "❌ Ushbu mediani yuklab bo'lmadi (Hajmi juda katta yoki havola xato).").catch(() => {});
+    console.log("Cobalt API yuklay olmadi, Zaxira tizimga o'tilmoqda...");
+  }
+
+  // 2-URUNISH (ZAXIRA): Muqobil ochiq va barqaror API orqali (Ayniqsa Instagram uchun)
+  try {
+    if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "🔄 Muqobil server orqali qayta urinilmoqda...").catch(() => {});
+    
+    // Invidious / Soshdl muqobil bepul platforma API-si
+    const fallbackRes = await axios.get(`https://v3.savetube.me/api/v2/download?url=${encodeURIComponent(url)}`, {
+      timeout: 15000
+    });
+
+    if (fallbackRes.data && fallbackRes.data.url) {
+      if (isAudio && fallbackRes.data.audio) {
+        await ctx.replyWithAudio({ url: fallbackRes.data.audio });
+      } else {
+        await ctx.replyWithVideo({ url: fallbackRes.data.url }, { caption: "🎬 Yuklab olindi (Zaxira Server)!" });
+      }
+      if (waiting) await ctx.deleteMessage(waiting.message_id).catch(() => {});
+      return;
+    }
+  } catch (fbError) {
+    console.error("Zaxira API ham yuklay olmadi:", fbError.message);
+  }
+
+  // Agar ikkala tizim ham yuklay olmasa:
+  if (waiting) {
+    await ctx.telegram.editMessageText(
+      ctx.chat.id, 
+      waiting.message_id, 
+      null, 
+      "❌ Afsuski, ushbu Instagram videosini yuklab bo'lmadi.\n\n" +
+      "⚠️ **Mumkin bo'lgan sabablar:**\n" +
+      "1. Havola yopiq (Private) akkauntga tegishli (botlar yopiq profillarni ko'ra olmaydi).\n" +
+      "2. Instagram serverlarimizni vaqtincha bloklagan.\n\n" +
+      "Iltimos, havola ochiq profildan ekanligini tekshirib, birozdan so'ng qayta urinib ko'ring."
+    ).catch(() => {});
   }
 }
 
@@ -144,16 +179,12 @@ async function search(ctx, q) {
   } catch (err) { ctx.reply("Qidiruvda xatolik."); }
 }
 
-// HAVOLA KELGANDA FORMAT SO'RASH MANTIQLARI
 bot.on("text", async (ctx) => {
   const text = ctx.message.text.trim();
   if (text === "🎬 Kino (Trailer) qidirish" || text === "🎵 Musiqa qidirish") return;
   
   if (/https?:\/\//.test(text)) {
-    // 64 baytdan oshmaydigan qisqa tasodifiy kalit yaratamiz
     const shortKey = crypto.randomUUID().slice(0, 8);
-    
-    // Asl uzun havolani vaqtinchalik xotira (session) ichiga shu kalit bilan saqlaymiz
     ctx.session[shortKey] = text;
 
     return ctx.reply(
@@ -167,23 +198,20 @@ bot.on("text", async (ctx) => {
     );
   }
   
-  if (!ctx.session.mode) return ctx.reply("Avval menyudan bo'limni tanlang yoki to'g'ridan-to'g'ri havola yuboring.", mainMenu);
+  if (!ctx.session.mode) return ctx.reply("Avval menyudan bo'limni tanlang yoki to'g'diran-to'g'ri havola yuboring.", mainMenu);
   await search(ctx, ctx.session.mode === "movie" ? text + " trailer" : text);
 });
 
-// TUGMA BOSILGANDA ISHLAYDIGAN FORMAT QABUL QILUVCHI
 bot.action(/fmt_(v|m)_(.+)/, async (ctx) => {
   await ctx.answerCbQuery();
-  const typeFlag = ctx.match[1]; // v yoki m
+  const typeFlag = ctx.match[1]; 
   const shortKey = ctx.match[2]; 
-  
   const originalUrl = ctx.session[shortKey];
   
   if (!originalUrl) {
     return ctx.reply("❌ Havola muddati o'tgan. Iltimos, linkni qaytadan yuboring.");
   }
 
-  // Tanlangan format bo'yicha yuklashga yuboramiz
   await downloadAndSend(ctx, originalUrl, typeFlag === "m");
 });
 
@@ -197,5 +225,5 @@ bot.action(/dl_(m|v)_(.+)/, async (ctx) => {
 });
 
 bot.launch({ allowedUpdates: [], dropPendingUpdates: true })
-  .then(() => console.log("🔥 V13 PRO COMPLETE SYSTEM WITH FORMAT SELECTOR READY"))
+  .then(() => console.log("🔥 V13 SMART DOUBLE-API SYSTEM READY"))
   .catch((err) => console.error("❌ Xatolik:", err.message));
