@@ -12,7 +12,7 @@ const mongoose = require("mongoose");
 
 // ================= EXPRESS =================
 const app = express();
-app.get("/", (req, res) => res.send("🔥 V13 PRO BOT RUNNING"));
+app.get("/", (req, res) => res.send("🔥 V13 PRO MULTI DOWNLOADER RUNNING"));
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => console.log("PORT:", PORT));
 
@@ -93,7 +93,7 @@ async function worker() {
       if (msg) await job.ctx.deleteMessage(msg.message_id).catch(() => {});
     } catch (e) {
       console.log("DOWNLOAD ERROR DETAILS:", e);
-      job.ctx.reply(`❌ Yuklab bo'lmadi. Havola noto'g'ri yoki yopiq profildan olingan.`);
+      job.ctx.reply(`❌ Yuklab bo'lmadi. Havola noto'g'ri, yopiq profildan olingan yoki yuklash limiti oshib ketgan.`);
       if (msg) await job.ctx.deleteMessage(msg.message_id).catch(() => {});
     }
   }
@@ -107,13 +107,11 @@ function download(url, type, fileName) {
     const ext = type === "audio" ? "mp3" : "mp4";
     const outPath = path.join(DIR, `${fileName}.${ext}`);
     
-    // Barcha ijtimoiy tarmoqlar (TikTok, Insta, YouTube) uchun umumiy va kuchli yuklash buyrug'i
     let cmd = `npx yt-dlp --no-playlist --no-warnings --quiet --max-filesize 2G -o "${outPath}" "${url}"`;
     
     if (type === "audio") {
       cmd += ` -x --audio-format mp3 --audio-quality 5`;
     } else {
-      // Instagram va TikTok formatlariga ham mos keladigan universal MP4 sozlamasi
       cmd += ` -f "mp4/bestvideo+bestaudio/best"`;
     }
 
@@ -156,6 +154,30 @@ bot.command("statistika", async (ctx) => {
   } catch (err) { ctx.reply("Xatolik yuz berdi."); }
 });
 
+bot.command("users", async (ctx) => {
+  if (ctx.from.id !== Number(ADMIN_ID)) return ctx.reply("❌ Faqat admin uchun.");
+  try {
+    const users = await User.find().sort({ joinedAt: -1 });
+    if (!users.length) return ctx.reply("👥 Baza hozircha bo'sh.");
+
+    let msg = "👥 *Bot foydalanuvchilari ro'yxati:*\n\n";
+    users.forEach((user, index) => {
+      msg += `${index + 1}. 👤 *${user.firstName}* - ${user.username}\n   └ ID: \`${user.telegramId}\`\n\n`;
+    });
+
+    if (msg.length > 4000) {
+      const chunks = msg.match(/[\s\S]{1,4000}/g);
+      for (const chunk of chunks) {
+        await ctx.reply(chunk, { parse_mode: "Markdown" });
+      }
+    } else {
+      ctx.reply(msg, { parse_mode: "Markdown" });
+    }
+  } catch (err) {
+    ctx.reply("❌ Ro'yxatni yuklashda xatolik yuz berdi.");
+  }
+});
+
 bot.hears("🎵 Musiqa qidirish", (ctx) => {
   ctx.session.mode = "music";
   const musicInline = Markup.inlineKeyboard([
@@ -188,17 +210,12 @@ async function search(ctx, q) {
   } catch (err) { ctx.reply("Qidiruvda xatolik."); }
 }
 
-// TEXT HANDLER
 bot.on("text", async (ctx) => {
   const text = ctx.message.text.trim();
   if (text === "🎬 Kino (Trailer) qidirish" || text === "🎵 Musiqa qidirish") return;
   
-  // Agar kelgan xabar havola (link) bo'lsa
   if (/https?:\/\//.test(text)) {
-    // Havolani xavfsiz saqlash uchun Base64 formatga o'giramiz (Inline Button limiti uchun)
     const encodedUrl = Buffer.from(text).toString('base64').replace(/=/g, '');
-    
-    // Faqat 60 belgidan oshmaydigan qilib qisqartirilgan ID yaratamiz (Telegram Callback Data cheklovi sababli)
     ctx.session[encodedUrl] = text; 
 
     return ctx.reply(
@@ -229,30 +246,18 @@ bot.action(/dl_(m|v)_(.+)/, async (ctx) => {
   addJob({ ctx, url, type: typeFlag === "m" ? "audio" : "video", title: "Media Fayl" });
 });
 
-// Universal Link Handler (TikTok, Instagram, YouTube)
 bot.action(/uni_(v|m)_(.+)/, async (ctx) => {
   await ctx.answerCbQuery();
   const typeFlag = ctx.match[1];
   const encodedUrl = ctx.match[2];
-  
-  // Sessiondan asl havolani qaytarib olamiz
   const url = ctx.session[encodedUrl];
   
   if (!url) {
-    return ctx.reply("❌ Havola muddati eskirgan. Iltimos, havolani qaytadan yuboring.");
+    return ctx.reply("❌ Havola muddati eskirgan. Iltimos, qaytadan yuboring.");
   }
 
-  addJob({ 
-    ctx, 
-    url: url, 
-    type: typeFlag === "m" ? "audio" : "video", 
-    title: typeFlag === "m" ? "Audio" : "Video" 
-  });
+  addJob({ ctx, url, type: typeFlag === "m" ? "audio" : "video", title: typeFlag === "m" ? "Audio" : "Video" });
 });
-
-setInterval(() => {
-  axios.get("https://telegrambot-production.up.railway.app").catch(() => {});
-}, 600000);
 
 bot.launch({ allowedUpdates: [], dropPendingUpdates: true })
   .then(() => console.log("🔥 V13 PRO STABLE READY"))
