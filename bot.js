@@ -2,17 +2,12 @@ require("dotenv").config();
 
 const { Telegraf, Markup, session } = require("telegraf");
 const express = require("express");
-const fs = require("fs");
-const path = require("path");
-const crypto = require("crypto");
-const { exec } = require("child_process");
-const yts = require("yt-search");
-const axios = require("axios");
 const mongoose = require("mongoose");
+const axios = require("axios");
 
 // ================= EXPRESS =================
 const app = express();
-app.get("/", (req, res) => res.send("🔥 V13 PRO MULTI DOWNLOADER RUNNING"));
+app.get("/", (req, res) => res.send("🔥 V13 MULTI DOWNLOADER API RUNNING"));
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => console.log("PORT:", PORT));
 
@@ -20,8 +15,8 @@ app.listen(PORT, () => console.log("PORT:", PORT));
 const MONGO_URI = process.env.MONGO_URI || "mongodb+srv://botuser:botpass2026@cluster0.ixwxk0c.mongodb.net/?appName=Cluster0";
 
 mongoose.connect(MONGO_URI)
-  .then(() => console.log("🍃 MongoDB ma'lumotlar bazasiga muvaffaqiyatli ulandi!"))
-  .catch((err) => console.error("❌ MongoDB ulanishida xatolik:", err.message));
+  .then(() => console.log("🍃 MongoDB muvaffaqiyatli ulandi!"))
+  .catch((err) => console.error("❌ MongoDB xatolik:", err.message));
 
 const UserSchema = new mongoose.Schema({
   telegramId: { type: Number, unique: true, required: true },
@@ -42,7 +37,7 @@ bot.use((ctx, next) => {
   return next();
 });
 
-// Foydalanuvchilarni avtomatik bazaga yozish
+// Foydalanuvchini avtomatik saqlash
 bot.use(async (ctx, next) => {
   if (ctx.from) {
     try {
@@ -56,7 +51,7 @@ bot.use(async (ctx, next) => {
         { upsert: true, returnDocument: 'after' }
       );
     } catch (err) {
-      console.error("Foydalanuvchini saqlashda xatolik:", err.message);
+      console.error("User save error:", err.message);
     }
   }
   return next();
@@ -66,88 +61,6 @@ const mainMenu = Markup.keyboard([
   ["🎵 Musiqa qidirish", "🎬 Kino (Trailer) qidirish"]
 ]).resize();
 
-const DIR = "/tmp";
-if (!fs.existsSync(DIR)) fs.mkdirSync(DIR, { recursive: true });
-
-// ================= JOB CONTROL =================
-const queue = [];
-let running = false;
-
-function addJob(job) {
-  queue.push(job);
-  if (!running) worker();
-}
-
-async function worker() {
-  running = true;
-
-  while (queue.length) {
-    const job = queue.shift();
-    const msg = await job.ctx.reply("⏳ Media fayl yuklanmoqda, kuting...").catch(() => null);
-
-    try {
-      const cleanTitle = (job.title || "Media").replace(/[\\/:*?"<>|]/g, " ").trim();
-      const randomId = crypto.randomUUID().slice(0, 4);
-      const safeFileName = `${cleanTitle.slice(0, 30)}_${randomId}`;
-
-      const file = await download(job.url, job.type, safeFileName);
-
-      if (msg) {
-        await job.ctx.telegram.editMessageText(job.ctx.chat.id, msg.message_id, null, "🚀 Telegramga yuborilmoqda...").catch(() => {});
-      }
-
-      if (job.type === "audio") {
-        await job.ctx.replyWithAudio({
-          source: file,
-          title: cleanTitle,
-          performer: "V13 Downloader"
-        });
-      } else {
-        await job.ctx.replyWithVideo({
-          source: file,
-          caption: `🎬 Barcha tarmoqlardan yuklovchi bot`
-        });
-      }
-
-      if (fs.existsSync(file)) fs.unlinkSync(file);
-      if (msg) await job.ctx.deleteMessage(msg.message_id).catch(() => {});
-    } catch (e) {
-      console.log("DOWNLOAD ERROR DETAILS:", e);
-      job.ctx.reply(`❌ Yuklab bo'lmadi. Havola noto'g'ri yoki yopiq profildan.`);
-      if (msg) await job.ctx.deleteMessage(msg.message_id).catch(() => {});
-    }
-  }
-
-  running = false;
-}
-
-// ================= DOWNLOAD FUNCTION =================
-f// ================= DOWNLOAD FUNCTION =================
-function download(url, type, fileName) {
-  return new Promise((resolve, reject) => {
-    const ext = type === "audio" ? "mp3" : "mp4";
-    const outPath = path.join(DIR, `${fileName}.${ext}`);
-    
-    // Instagram blokirovkasini chetlab o'tish uchun maxsus brauzer imitatsiyasi qo'shildi
-    let cmd = `npx yt-dlp --no-playlist --no-warnings --quiet --max-filesize 2G ` +
-              `--user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" ` +
-              `--add-header "Accept-Language:en-US,en;q=0.9" ` +
-              `--add-header "Sec-Ch-Ua-Platform:\\"Windows\\"" ` +
-              `-o "${outPath}" "${url}"`;
-    
-    if (type === "audio") {
-      cmd += ` -x --audio-format mp3 --audio-quality 5`;
-    } else {
-      cmd += ` -f "mp4/bestvideo+bestaudio/best"`;
-    }
-
-    exec(cmd, (error, stdout, stderr) => {
-      if (error) return reject(new Error(`yt-dlp xatosi: ${stderr || error.message}`));
-      if (!fs.existsSync(outPath)) return reject(new Error("Fayl topilmadi"));
-      resolve(outPath);
-    });
-  });
-}
 // ================= BOT COMMANDS =================
 bot.start((ctx) => {
   ctx.session = {};
@@ -175,87 +88,46 @@ bot.command("users", async (ctx) => {
   } catch (err) { ctx.reply("❌ Xatolik."); }
 });
 
-bot.hears("🎵 Musiqa qidirish", (ctx) => {
-  ctx.session.mode = "music";
-  ctx.reply("🎵 Qo‘shiq yoki xonanda nomini yozing:");
-});
-
-bot.hears("🎬 Kino (Trailer) qidirish", (ctx) => {
-  ctx.session.mode = "movie";
-  ctx.reply("🎬 Kino nomini yozing:");
-});
-
-async function search(ctx, q) {
-  try {
-    const r = await yts(q);
-    const videos = r.videos.slice(0, 5); 
-    if (!videos.length) return ctx.reply("Hech narsa topilmadi 😕");
-    const buttons = [];
-    const isMusic = ctx.session.mode === "music";
-    videos.forEach((v) => {
-      const shortTitle = v.title.slice(0, 30);
-      buttons.push([Markup.button.callback(isMusic ? `🎵 ${shortTitle}` : `🎥 ${shortTitle}`, isMusic ? `dl_m_${v.videoId}` : `dl_v_${v.videoId}`)]);
-    });
-    return ctx.reply("📋 Natijalar topildi. Yuklash uchun bosing:", Markup.inlineKeyboard(buttons));
-  } catch (err) { ctx.reply("Qidiruvda xatolik."); }
-}
-
-// LINKLARNI QABUL QILISH VA FORMAT SO'RASH QISMI
+// LINKLARNI EMBED API ORQALI YUKLASH
 bot.on("text", async (ctx) => {
   const text = ctx.message.text.trim();
   if (text === "🎬 Kino (Trailer) qidirish" || text === "🎵 Musiqa qidirish") return;
   
   if (/https?:\/\//.test(text)) {
-    // 64 baytdan oshmaydigan juda qisqa random ID yaratamiz
-    const shortKey = crypto.randomUUID().slice(0, 8);
+    const waiting = await ctx.reply("⏳ Havola tekshirilmoqda va yuklanmoqda...").catch(() => null);
     
-    // Asl uzun havolani session (vaqtinchalik xotira) ichiga shu qisqa kalit bilan saqlaymiz
-    ctx.session[shortKey] = text;
+    try {
+      // Universal bepul ijtimoiy tarmoq yuklovchi API xizmati
+      const response = await axios.post('https://api.cobalt.tools/api/json', {
+        url: text,
+        vQuality: "720", // Yaxshi sifatda yuklash
+        isAudioOnly: false
+      }, {
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json'
+        }
+      });
 
-    return ctx.reply(
-      "📥 Havola aniqlandi. Formatni tanlang:", 
-      Markup.inlineKeyboard([
-        [
-          Markup.button.callback("🎥 Video (MP4)", `fmt_v_${shortKey}`), 
-          Markup.button.callback("🎵 Audio (MP3)", `fmt_m_${shortKey}`)
-        ]
-      ])
-    );
+      if (response.data && response.data.url) {
+        if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "🚀 Telegramga yuborilmoqda...").catch(() => {});
+        
+        // Videoni to'g'ridan-to'g'ri internetdagi tayyor havola orqali yuboramiz
+        await ctx.replyWithVideo({ url: response.data.url }, { caption: "🎬 Yuklab olindi!" });
+        if (waiting) await ctx.deleteMessage(waiting.message_id).catch(() => {});
+      } else {
+        throw new Error("API URL qaytarmadi");
+      }
+    } catch (error) {
+      console.error("API DOWNLOAD ERROR:", error.message);
+      if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "❌ Afsuski, ushbu media faylni yuklay olmadim.\n\nHavola yopiq profildan bo'lishi mumkin yoki tizim band.").catch(() => {});
+    }
+    return;
   }
   
-  if (!ctx.session.mode) return ctx.reply("Avval menyudan bo'limni tanlang yoki to'g'ridan-to'g'ri havola yuboring.", mainMenu);
-  await search(ctx, ctx.session.mode === "movie" ? text + " trailer" : text);
-});
-
-// FORMAT TUGMASI BOSILGANDA ISHLAYDIGAN MANTIQ
-bot.action(/fmt_(v|m)_(.+)/, async (ctx) => {
-  await ctx.answerCbQuery();
-  const typeFlag = ctx.match[1]; // v yoki m
-  const shortKey = ctx.match[2]; // qisqa kalit
-  
-  // Session xotirasidan asl uzun havolani qaytarib olamiz
-  const originalUrl = ctx.session[shortKey];
-  
-  if (!originalUrl) {
-    return ctx.reply("❌ Havola muddati o'tgan yoki eskirgan. Iltimos, linkni qaytadan yuboring.");
-  }
-
-  addJob({ 
-    ctx, 
-    url: originalUrl, 
-    type: typeFlag === "m" ? "audio" : "video", 
-    title: typeFlag === "m" ? "Audio" : "Video" 
-  });
-});
-
-bot.action(/dl_(m|v)_(.+)/, async (ctx) => {
-  await ctx.answerCbQuery();
-  const typeFlag = ctx.match[1]; 
-  const videoId = ctx.match[2];  
-  const url = `https://youtube.com/watch?v=${videoId}`;
-  addJob({ ctx, url, type: typeFlag === "m" ? "audio" : "video", title: "Media Fayl" });
+  ctx.reply("Iltimos, to'g'ri havola yuboring yoki menyudan foydalaning.", mainMenu);
 });
 
 bot.launch({ allowedUpdates: [], dropPendingUpdates: true })
-  .then(() => console.log("🔥 V13 PRO FORMAT-SELECTOR READY"))
+  .then(() => console.log("🔥 V13 PRO API SYSTEM READY"))
   .catch((err) => console.error("❌ Xatolik:", err.message));
