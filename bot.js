@@ -121,7 +121,7 @@ bot.hears("🎬 Kino (Treyler) qidirish", (ctx) => {
   ctx.reply("🎬 Kino yoki treyler nomini yozing:");
 });
 
-// ================= 100% BARQAROR QIDIRUV TIZIMI =================
+// ================= YOUTUBE QIDIRUV TIZIMI =================
 async function searchYouTubeLive(ctx, query) {
   const waiting = await ctx.reply("🔍 Qidirilmoqda...").catch(() => null);
   try {
@@ -149,20 +149,22 @@ async function searchYouTubeLive(ctx, query) {
   }
 }
 
-// ================= ULTRA FAST YUKLASH TIZIMI (5-6 SONIYA) =================
+// ================= LOCAL DOWNLOAD RUNNER =================
 function runLocalDl(command) {
   return new Promise((resolve, reject) => {
     exec(command, (error, stdout, stderr) => { if (error) reject(error); else resolve(stdout); });
   });
 }
 
+// ================= 100% ORIGINAL NOM BILAN YUKLASH ENGINE =================
 async function downloadAndSend(ctx, targetUrl, isAudio = false) {
-  const waiting = await ctx.reply("⏳ Yuklanmoqda (5-6 soniya)...").catch(() => null);
+  const waiting = await ctx.reply("⏳ Yuklanmoqda va formatlanmoqda...").catch(() => null);
   let url = targetUrl;
   
   let videoTitle = isAudio ? "Musiqa" : "Video_Media";
   let performerName = "Downloader";
 
+  // 1. YouTube metadata qidiruvi (Sarlavha aniqlash)
   try {
     const urlObj = new URL(targetUrl);
     if (urlObj.searchParams.has("list")) {
@@ -174,13 +176,17 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false) {
     if (url.includes("youtube.com") || url.includes("youtu.be")) {
       const searchResults = await ytSearch(url);
       if (searchResults && searchResults.title) {
-        videoTitle = searchResults.title.replace(/[<>]/g, "").trim();
+        videoTitle = searchResults.title.replace(/[<>:"/\\|?*]/g, "").trim();
         performerName = searchResults.author?.name || "YouTube";
       }
     }
   } catch (e) {}
 
-  // ⚡️ INSTAGRAM, TIKTOK, SHORTS, REELS, SHUTTLE FAST SPEED DOWNLOADER
+  const fileId = crypto.randomUUID().slice(0, 8);
+  const ext = isAudio ? "mp3" : "mp4";
+  const finalPath = path.join(__dirname, `media_${fileId}.${ext}`);
+
+  // 2. ULTRA-SPEED COBALT API TIZIMI (Faylni ichki serverga yuklab olib yuborish)
   try {
     const res = await axios.post(`https://api.cobalt.tools/api/json`, {
       url: url,
@@ -189,26 +195,57 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false) {
       vQuality: "720"
     }, {
       headers: { "Accept": "application/json", "Content-Type": "application/json" },
-      timeout: 6000 // 6 soniyali ultra-tezkor kutish taymauti
+      timeout: 8000
     });
 
     if (res.data && res.data.url) {
+      if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "🚀 Telegram'ga uzatilmoqda...").catch(() => {});
+      
+      // Havolani to'g'ridan-to'g'ri bermay, uni oqimli (stream) ko'rinishda vaqtinchalik serverga yozamiz
+      const writer = fs.createWriteStream(finalPath);
+      const response = await axios({
+        url: res.data.url,
+        method: 'GET',
+        responseType: 'stream'
+      });
+
+      response.data.pipe(writer);
+
+      await new Promise((resolve, reject) => {
+        writer.on('finish', resolve);
+        writer.on('error', reject);
+      });
+
+      // Serverga yuklanib bo'lingach, faylni haqiqiy nomi bilan jo'natamiz
       if (isAudio) {
-        await ctx.replyWithAudio({ url: res.data.url }, { title: videoTitle, performer: performerName }).catch(() => {});
+        await ctx.replyWithAudio(
+          { source: finalPath }, 
+          { 
+            title: videoTitle, 
+            performer: performerName,
+            filename: `${videoTitle}.mp3` // Telegram pleyeri majburan shu nomni oladi
+          }
+        );
       } else {
-        await ctx.replyWithVideo({ url: res.data.url }, { caption: `🎬 <b>${videoTitle}</b>`, parse_mode: "HTML" }).catch(() => {});
+        await ctx.replyWithVideo(
+          { source: finalPath }, 
+          { caption: `🎬 <b>${videoTitle}</b>`, parse_mode: "HTML" }
+        );
       }
+
+      if (fs.existsSync(finalPath)) fs.unlinkSync(finalPath);
       if (waiting) await ctx.deleteMessage(waiting.message_id).catch(() => {});
-      return; // Agar muvaffaqiyatli bo'lsa, pastdagi sekin tizimga o'tmaydi
+      return; 
     }
-  } catch (fastApiError) {}
+  } catch (fastApiError) {
+    console.log("Cobalt xatosi, zaxira tizimiga o'tildi...");
+  }
 
-  // 🔄 ZAXIRA TIZIMI (Agarda yuqoridagi API 5 soniyada javob bermasa ishga tushadi)
-  if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "⚡️ Server orqali yuklanmoqda...").catch(() => {});
-  const fileId = crypto.randomUUID().slice(0, 8);
-  const outputTemplate = path.join(__dirname, `media_${fileId}.%(ext)s`);
-
+  // 3. ZAXIRA TIZIMI (Agarda Cobalt'da xatolik bo'lsa, barqaror yt-dlp ishlaydi)
   try {
+    if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "⚡️ Zaxira tizimi ishga tushdi...").catch(() => {});
+    const outputTemplate = path.join(__dirname, `media_${fileId}.%(ext)s`);
+
     let command = isAudio 
       ? `yt-dlp --no-playlist --no-check-certificates --no-warnings -x --audio-format mp3 --audio-quality 0 -o "${outputTemplate}" "${url}"`
       : `yt-dlp --no-playlist --no-check-certificates --no-warnings -f "b[ext=mp4]/bv*[ext=mp4]+ba[ext=m4a]/b" -o "${outputTemplate}" "${url}"`;
@@ -218,18 +255,23 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false) {
     const downloadedFile = files.find(f => f.startsWith(`media_${fileId}`));
 
     if (downloadedFile) {
-      const finalPath = path.join(__dirname, downloadedFile);
-      if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "🚀 Yuborilmoqda...").catch(() => {});
+      const localPath = path.join(__dirname, downloadedFile);
       
       if (isAudio) {
-        await ctx.replyWithAudio({ source: finalPath }, { title: videoTitle, performer: performerName, filename: `${videoTitle}.mp3` });
+        await ctx.replyWithAudio(
+          { source: localPath }, 
+          { title: videoTitle, performer: performerName, filename: `${videoTitle}.mp3` }
+        );
       } else {
-        await ctx.replyWithVideo({ source: finalPath }, { caption: `🎬 <b>${videoTitle}</b>`, parse_mode: "HTML" });
+        await ctx.replyWithVideo(
+          { source: localPath }, 
+          { caption: `🎬 <b>${videoTitle}</b>`, parse_mode: "HTML" }
+        );
       }
-      fs.unlinkSync(finalPath);
+      if (fs.existsSync(localPath)) fs.unlinkSync(localPath);
     }
   } catch (error) {
-    if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "❌ Yuklashda xatolik.").catch(() => {});
+    if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "❌ Yuklash imkoni bo'lmadi.").catch(() => {});
   } finally {
     if (waiting) await ctx.deleteMessage(waiting.message_id).catch(() => {});
   }
@@ -256,7 +298,7 @@ bot.on("message", async (ctx) => {
   
   if (text === "🎬 Kino (Treyler) qidirish" || text === "🎵 Musiqa qidirish" || text === "📊 Statistika" || text === "📢 Xabar yuborish" || text === "⬅️ Bosh menyu") return;
 
-  // ⚡️ HAVOLALARNI FORMATLASH VA UNVERSAL ANIQLASH (YouTube, TikTok, Instagram Reels/Shorts)
+  // Havolalarni aniqlash va format so'rash (Shorts, Reels, TikTok, YouTube)
   if (/https?:\/\//.test(text)) {
     const shortKey = crypto.randomUUID().slice(0, 8);
     ctx.session[shortKey] = text;
@@ -265,7 +307,6 @@ bot.on("message", async (ctx) => {
     ]));
   }
 
-  // Qidiruv rejimi (Standart: musiqa)
   if (!ctx.session.mode) ctx.session.mode = "music";
   await searchYouTubeLive(ctx, ctx.session.mode === "movie" ? text + " trailer" : text);
 });
