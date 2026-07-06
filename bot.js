@@ -7,13 +7,14 @@ const crypto = require("crypto");
 const { exec } = require("child_process");
 const fs = require("fs");
 const path = require("path");
+const ytSearch = require("yt-search"); // 👈 Yangi qidiruv tizimi qo'shildi
 
-// ⚠️ ADMIN ID ni muhit o'zgaruvchisidan yoki to'g'ridan-to'g'ri raqamdan oladi
+// Admin ID raqamingiz
 const ADMIN_ID = process.env.ADMIN_ID ? parseInt(process.env.ADMIN_ID) : 8125836834; 
 
 // ================= EXPRESS WEB SERVER =================
 const app = express();
-app.get("/", (req, res) => res.send("🟢 Live HTML Engine Active"));
+app.get("/", (req, res) => res.send("🟢 Stabilized Bot Engine Online"));
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
 
@@ -23,8 +24,8 @@ mongoose.connect(MONGO_URI).catch((err) => console.log("🍃 DB Error:", err.mes
 
 const User = mongoose.model("User", new mongoose.Schema({
   telegramId: { type: Number, unique: true, required: true },
-  username: { type: String, default: "@Nozimam_01" },
-  firstName: { type: String, default: "Nozima" },
+  username: { type: String, default: "Mavjud emas" },
+  firstName: { type: String, default: "Ismsiz" },
   date: { type: Date, default: Date.now }
 }));
 
@@ -42,20 +43,15 @@ const adminMenu = Markup.keyboard([
   ["⬅️ Bosh menyu"]
 ]).resize();
 
-// 🔒 Ismlardagi g'alati belgilarni xavfsiz qiluvchi funksiya
 function escapeHTML(text) {
   if (!text) return "";
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 // ================= COMMANDS =================
 bot.start(async (ctx) => {
   ctx.session = {};
   try {
-    // Mongoose warning tuzatildi: returnDocument qo'shildi
     await User.findOneAndUpdate(
       { telegramId: ctx.from.id },
       { 
@@ -68,7 +64,7 @@ bot.start(async (ctx) => {
     console.error("User save error:", e.message);
   }
 
-  let text = "🚀 Bot muvaffaqiyatli yangilandi.\n\nHavola yuboring yoki pastdagi menyudan foydalanib qo'shiq/kino nomini yozing:";
+  let text = "🚀 Bot muvaffaqiyatli ishga tushdi.\n\nHavola yuboring yoki pastdagi menyudan foydalanib qo'shiq/kino nomini yozing:";
   if (ctx.from.id === ADMIN_ID) {
     text += "\n\n👨‍💻 Admin panel: /admin";
   }
@@ -84,44 +80,28 @@ bot.hears("⬅️ Bosh menyu", (ctx) => {
   ctx.reply("Bosh menyu:", mainMenu);
 });
 
-// ================= 🔥 CRASH BO'LMAYDIGAN YANGI STATISTIKA =================
 bot.hears("📊 Statistika", async (ctx) => {
   if (ctx.from.id !== ADMIN_ID) return;
-
   const waiting = await ctx.reply("📊 Ma'lumotlar yig'ilmoqda...").catch(() => null);
-  
   try {
     const users = await User.find().sort({ date: -1 });
     const count = users.length;
-
     if (count === 0) {
       if (waiting) await ctx.deleteMessage(waiting.message_id).catch(() => {});
       return ctx.reply("📊 <b>Bot statistikasi:</b>\n\nHozircha obunachilar mavjud emas.", { parse_mode: "HTML" });
     }
-
-    // Markdown butunlay olib tashlandi, endi hammasi sof HTML formatda!
     let report = `📊 <b>BOT STATISTIKASI</b>\n👥 Jami obunachilar: <b>${count} ta</b>\n\n📋 <b>Foydalanuvchilar ro'yxati:</b>\n`;
-
     users.forEach((user, index) => {
-      const safeName = escapeHTML(user.firstName);
-      const safeUsername = escapeHTML(user.username);
-      report += `${index + 1}. 👤 <b>${safeName}</b> — ${safeUsername} (ID: <code>${user.telegramId}</code>)\n`;
+      report += `${index + 1}. 👤 <b>${escapeHTML(user.firstName)}</b> — ${escapeHTML(user.username)} (ID: <code>${user.telegramId}</code>)\n`;
     });
-
     if (waiting) await ctx.deleteMessage(waiting.message_id).catch(() => {});
-
-    // Agar ro'yxat juda uzun bo'lsa, qismlarga bo'lib yuboradi
     if (report.length > 4000) {
       const chunks = report.match(/[\s\S]{1,4000}/g);
-      for (const chunk of chunks) {
-        await ctx.reply(chunk, { parse_mode: "HTML" }).catch(() => {});
-      }
+      for (const chunk of chunks) await ctx.reply(chunk, { parse_mode: "HTML" }).catch(() => {});
     } else {
       await ctx.reply(report, { parse_mode: "HTML" }).catch(() => {});
     }
-
   } catch (error) {
-    console.error("Stats error:", error.message);
     if (waiting) await ctx.deleteMessage(waiting.message_id).catch(() => {});
     ctx.reply("⚠️ Statistika yuklashda xatolik yuz berdi.");
   }
@@ -143,55 +123,32 @@ bot.hears("🎬 Kino (Treyler) qidirish", (ctx) => {
   ctx.reply("🎬 Kino yoki treyler nomini yozing:");
 });
 
-function cleanTitle(title) {
-  if (!title) return "Media";
-  return title.replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/[<>]/g, "").trim();
-}
-
-// ================= YOUTUBE LIVE SEARCH PARSER =================
+// ================= 🔥 100% KAFOLATLI YOUTUBE QIDIRUV TIZIMI =================
 async function searchYouTubeLive(ctx, query) {
   const waiting = await ctx.reply("🔍 Qidirilmoqda...").catch(() => null);
   try {
-    const searchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`;
-    const { data } = await axios.get(searchUrl, {
-      headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" }
-    });
+    // yt-search moduli orqali qidiruv (bloklanmaydi)
+    const searchResults = await ytSearch(query);
+    const videos = searchResults.videos.slice(0, 5); // Dastlabki 5 ta eng mos natija
 
-    const regex = /var ytInitialData = (\{.+?\});/;
-    const match = data.match(regex);
-    if (!match) throw new Error("No match");
-
-    const json = JSON.parse(match[1]);
-    const contents = json.contents?.twoColumnSearchResultsRenderer?.primaryContents?.sectionListRenderer?.contents?.[0]?.itemSectionRenderer?.contents;
-
-    if (!contents || contents.length === 0) {
+    if (!videos || videos.length === 0) {
       if (waiting) await ctx.deleteMessage(waiting.message_id).catch(() => {});
-      return ctx.reply("Hech narsa topilmadi 😕.");
+      return ctx.reply("Hech narsa topilmadi 😕. Iltimos, nomini to'g'riroq yozib ko'ring.");
     }
 
     const buttons = [];
     const isMusic = ctx.session.mode === "music";
-    let count = 0;
 
-    for (const item of contents) {
-      if (count >= 5) break;
-      const videoRenderer = item.videoRenderer;
-      if (!videoRenderer) continue;
-
-      const videoId = videoRenderer.videoId;
-      const titleText = videoRenderer.title?.runs?.[0]?.text;
-
-      if (videoId && titleText) {
-        const title = cleanTitle(titleText);
-        const displayTitle = title.length > 40 ? title.slice(0, 37) + "..." : title;
-        buttons.push([Markup.button.callback(isMusic ? `🎵 ${displayTitle}` : `🎥 ${displayTitle}`, `dl_${isMusic ? 'm' : 'v'}_${videoId}`)]);
-        count++;
-      }
+    for (const video of videos) {
+      const title = video.title.replace(/[<>]/g, "").trim();
+      const displayTitle = title.length > 40 ? title.slice(0, 37) + "..." : title;
+      buttons.push([Markup.button.callback(isMusic ? `🎵 ${displayTitle}` : `🎥 ${displayTitle}`, `dl_${isMusic ? 'm' : 'v'}_${video.videoId}`)]);
     }
 
     if (waiting) await ctx.deleteMessage(waiting.message_id).catch(() => {});
     return ctx.reply("📋 Topilgan natijalar:", Markup.inlineKeyboard(buttons));
   } catch (err) {
+    console.error("Search error:", err.message);
     if (waiting) await ctx.deleteMessage(waiting.message_id).catch(() => {});
     ctx.reply("⚠️ Qidiruv amalga oshmadi. Qayta urinib ko'ring.");
   }
@@ -331,7 +288,7 @@ bot.action(/dl_(m|v)_(.+)/, async (ctx) => {
 
 // ================= START BOT =================
 bot.launch({ dropPendingUpdates: true })
-  .then(() => console.log("🔥 BOT IS LIVE AND FULLY STABLE IN HTML MODE!"))
+  .then(() => console.log("🔥 BOT IS LIVE WITH STABLE YT-SEARCH MODULE!"))
   .catch((err) => console.error(err.message));
 
 process.once("SIGINT", () => bot.stop("SIGINT"));
