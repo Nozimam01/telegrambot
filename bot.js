@@ -9,11 +9,11 @@ const fs = require("fs");
 const path = require("path");
 
 // ⚠️ DIQQAT: Bu yerga o'zingizning Telegram ID raqamingizni yozing!
-const ADMIN_ID = process.env.ADMIN_ID ? parseInt(process.env.ADMIN_ID) : 123456789; 
+const ADMIN_ID = process.env.ADMIN_ID ? parseInt(process.env.ADMIN_ID) :8125836834; 
 
 // ================= EXPRESS WEB SERVER =================
 const app = express();
-app.get("/", (req, res) => res.send("🟢 Detailed Admin Statistics Engine Online"));
+app.get("/", (req, res) => res.send("🟢 Stabilized HTML-Entities Engine Online"));
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
 
@@ -42,19 +42,31 @@ const adminMenu = Markup.keyboard([
   ["⬅️ Bosh menyu"]
 ]).resize();
 
+// HTML uchun maxsus belgilarni xavfsiz qilish funksiyasi
+function escapeHTML(text) {
+  if (!text) return "";
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
 // ================= COMMANDS =================
 bot.start(async (ctx) => {
   ctx.session = {};
   try {
+    // 🛠 MONGOOSE ESKIRISH OGOHLANTIRIShI TUZATILDI: returnDocument: 'after' qo'shildi
     await User.findOneAndUpdate(
       { telegramId: ctx.from.id },
       { 
         username: ctx.from.username ? `@${ctx.from.username}` : "Mavjud emas", 
         firstName: ctx.from.first_name || "Ismsiz" 
       },
-      { upsert: true, new: true }
+      { upsert: true, returnDocument: 'after' }
     );
-  } catch (e) {}
+  } catch (e) {
+    console.error("User save error:", e.message);
+  }
 
   let text = "🚀 Bot muvaffaqiyatli yangilandi.\n\nHavola yuboring yoki pastdagi menyudan foydalanib qo'shiq/kino nomini yozing:";
   if (ctx.from.id === ADMIN_ID) {
@@ -72,42 +84,43 @@ bot.hears("⬅️ Bosh menyu", (ctx) => {
   ctx.reply("Bosh menyu:", mainMenu);
 });
 
-// ================= 🔥 FAQAT ADMIN UCHUN PROFILLI STATISTIKA =================
+// ================= 🔥 TUZATILGAN XAFSIZ STATISTIKA (HTML FORMATDA) =================
 bot.hears("📊 Statistika", async (ctx) => {
-  if (ctx.from.id !== ADMIN_ID) return; // Begonalar uchun taqiq
+  if (ctx.from.id !== ADMIN_ID) return;
 
   const waiting = await ctx.reply("📊 Ma'lumotlar yig'ilmoqda...").catch(() => null);
   
   try {
-    const users = await User.find().sort({ date: -1 }); // Oxirgi qo'shilganlar birinchi keladi
+    const users = await User.find().sort({ date: -1 });
     const count = users.length;
 
     if (count === 0) {
       if (waiting) await ctx.deleteMessage(waiting.message_id).catch(() => {});
-      return ctx.reply("📊 *Bot statistikasi:*\n\nHozircha obunachilar mavjud emas.", { parse_mode: "Markdown" });
+      return ctx.reply("📊 <b>Bot statistikasi:</b>\n\nHozircha obunachilar mavjud emas.", { parse_mode: "HTML" });
     }
 
-    let report = `📊 *BOT STATISTIKASI*\n👥 Jami obunachilar: *${count} ta*\n\n📋 *Foydalanuvchilar ro'yxati:*\n`;
+    // Markdown'dan HTML'ga o'tildi - crash mutlaqo bo'lmaydi endi!
+    let report = `📊 <b>BOT STATISTIKASI</b>\n👥 Jami obunachilar: <b>${count} ta</b>\n\n📋 <b>Foydalanuvchilar ro'yxati:</b>\n`;
 
     users.forEach((user, index) => {
-      // Telegram xatolik bermasligi uchun ismlardagi belgilarni tozalaymiz
-      const safeName = user.firstName.replace(/[*_`\[\]]/g, "");
-      report += `${index + 1}. 👤 *${safeName}* — ${user.username} (ID: \`${user.telegramId}\`)\n`;
+      const safeName = escapeHTML(user.firstName);
+      const safeUsername = escapeHTML(user.username);
+      report += `${index + 1}. 👤 <b>${safeName}</b> — ${safeUsername} (ID: <code>${user.telegramId}</code>)\n`;
     });
 
     if (waiting) await ctx.deleteMessage(waiting.message_id).catch(() => {});
 
-    // Agar xabar matni juda uzun bo'lib ketganda (Telegram limiti 4096 belgi), uni bo'lib yuboramiz
     if (report.length > 4000) {
       const chunks = report.match(/[\s\S]{1,4000}/g);
       for (const chunk of chunks) {
-        await ctx.reply(chunk, { parse_mode: "Markdown" });
+        await ctx.reply(chunk, { parse_mode: "HTML" }).catch(err => console.error("Chunk send error:", err.message));
       }
     } else {
-      ctx.reply(report, { parse_mode: "Markdown" });
+      await ctx.reply(report, { parse_mode: "HTML" }).catch(err => console.error("Report send error:", err.message));
     }
 
   } catch (error) {
+    console.error("Stats error:", error.message);
     if (waiting) await ctx.deleteMessage(waiting.message_id).catch(() => {});
     ctx.reply("⚠️ Statistika yuklashda xatolik yuz berdi.");
   }
@@ -317,7 +330,7 @@ bot.action(/dl_(m|v)_(.+)/, async (ctx) => {
 
 // ================= START BOT =================
 bot.launch({ dropPendingUpdates: true })
-  .then(() => console.log("🔥 BOT IS LIVE WITH USER-PROFILED STATISTICS!"))
+  .then(() => console.log("🔥 BOT IS LIVE AND FULLY STABLE WITH HTML ESCAPING!"))
   .catch((err) => console.error(err.message));
 
 process.once("SIGINT", () => bot.stop("SIGINT"));
