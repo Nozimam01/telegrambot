@@ -161,10 +161,10 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false) {
   const waiting = await ctx.reply("⏳ Yuklanmoqda va formatlanmoqda...").catch(() => null);
   let url = targetUrl;
   
-  let videoTitle = isAudio ? "Musiqa" : "Video_Media";
-  let performerName = "Downloader";
+  let videoTitle = "";
+  let performerName = "";
 
-  // 1. YouTube metadata qidiruvi (Sarlavha aniqlash)
+  // 1. Havolani tozalash va YouTube orqali qo'shiq nomini aniqlash
   try {
     const urlObj = new URL(targetUrl);
     if (urlObj.searchParams.has("list")) {
@@ -177,7 +177,7 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false) {
       const searchResults = await ytSearch(url);
       if (searchResults && searchResults.title) {
         videoTitle = searchResults.title.replace(/[<>:"/\\|?*]/g, "").trim();
-        performerName = searchResults.author?.name || "YouTube";
+        performerName = searchResults.author?.name || "YouTube Player";
       }
     }
   } catch (e) {}
@@ -186,7 +186,7 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false) {
   const ext = isAudio ? "mp3" : "mp4";
   const finalPath = path.join(__dirname, `media_${fileId}.${ext}`);
 
-  // 2. ULTRA-SPEED COBALT API TIZIMI (Faylni ichki serverga yuklab olib yuborish)
+  // 2. ULTRA-SPEED COBALT API TIZIMI
   try {
     const res = await axios.post(`https://api.cobalt.tools/api/json`, {
       url: url,
@@ -195,13 +195,22 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false) {
       vQuality: "720"
     }, {
       headers: { "Accept": "application/json", "Content-Type": "application/json" },
-      timeout: 8000
+      timeout: 10000
     });
 
     if (res.data && res.data.url) {
       if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "🚀 Telegram'ga uzatilmoqda...").catch(() => {});
       
-      // Havolani to'g'ridan-to'g'ri bermay, uni oqimli (stream) ko'rinishda vaqtinchalik serverga yozamiz
+      // 🌟 Agar YouTube qidiruvda nom topilmagan bo'lsa (Insta/TikTok uchun), Cobalt API bergan original fayl nomini olamiz
+      if (!videoTitle && res.data.filename) {
+        videoTitle = res.data.filename.replace(/\.[^/.]+$/, "").replace(/[<>:"/\\|?*]/g, "").trim();
+      }
+      
+      // Agar baribir bo'sh qolib ketgan bo'lsa, xunuk chiqmasligi uchun chiroyli nom beramiz
+      if (!videoTitle) videoTitle = isAudio ? "Musiqa" : "Video Media";
+      if (!performerName) performerName = isAudio ? "Original Audio" : "Social Media";
+
+      // Oqimli yuklash tizimi (Stream)
       const writer = fs.createWriteStream(finalPath);
       const response = await axios({
         url: res.data.url,
@@ -216,14 +225,14 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false) {
         writer.on('error', reject);
       });
 
-      // Serverga yuklanib bo'lingach, faylni haqiqiy nomi bilan jo'natamiz
+      // Telegram'ga yuborish qismi (Audio Metadata to'g'rilandi)
       if (isAudio) {
         await ctx.replyWithAudio(
           { source: finalPath }, 
           { 
             title: videoTitle, 
             performer: performerName,
-            filename: `${videoTitle}.mp3` // Telegram pleyeri majburan shu nomni oladi
+            filename: `${videoTitle}.mp3` // Pleyer nomini toza saqlaydi
           }
         );
       } else {
@@ -241,7 +250,7 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false) {
     console.log("Cobalt xatosi, zaxira tizimiga o'tildi...");
   }
 
-  // 3. ZAXIRA TIZIMI (Agarda Cobalt'da xatolik bo'lsa, barqaror yt-dlp ishlaydi)
+  // 3. ZAXIRA TIZIMI (yt-dlp local yuklash)
   try {
     if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "⚡️ Zaxira tizimi ishga tushdi...").catch(() => {});
     const outputTemplate = path.join(__dirname, `media_${fileId}.%(ext)s`);
@@ -257,6 +266,9 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false) {
     if (downloadedFile) {
       const localPath = path.join(__dirname, downloadedFile);
       
+      if (!videoTitle) videoTitle = "Musiqa";
+      if (!performerName) performerName = "Musiqa Bot";
+
       if (isAudio) {
         await ctx.replyWithAudio(
           { source: localPath }, 
@@ -298,7 +310,6 @@ bot.on("message", async (ctx) => {
   
   if (text === "🎬 Kino (Treyler) qidirish" || text === "🎵 Musiqa qidirish" || text === "📊 Statistika" || text === "📢 Xabar yuborish" || text === "⬅️ Bosh menyu") return;
 
-  // Havolalarni aniqlash va format so'rash (Shorts, Reels, TikTok, YouTube)
   if (/https?:\/\//.test(text)) {
     const shortKey = crypto.randomUUID().slice(0, 8);
     ctx.session[shortKey] = text;
