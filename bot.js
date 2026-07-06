@@ -8,18 +8,18 @@ const { exec } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 
-// ⚠️ DIQQAT: Bu yerga o'zingizning Telegram ID raqamingizni yozing!
-const ADMIN_ID = process.env.ADMIN_ID ? parseInt(process.env.ADMIN_ID) :8125836834; 
+// ⚠️ ADMIN ID ni muhit o'zgaruvchisidan yoki to'g'ridan-to'g'ri raqamdan oladi
+const ADMIN_ID = process.env.ADMIN_ID ? parseInt(process.env.ADMIN_ID) : 8125836834; 
 
 // ================= EXPRESS WEB SERVER =================
 const app = express();
-app.get("/", (req, res) => res.send("🟢 Stabilized HTML-Entities Engine Online"));
-const PORT = process.env.PORT || 4000;
+app.get("/", (req, res) => res.send("🟢 Live HTML Engine Active"));
+const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
 
 // ================= MONGOOSE DATABASE =================
-const MONGO_URI = process.env.MONGO_URI || "mongodb+srv://botuser:botpass2026@cluster0.ixwxk0c.mongodb.net/?appName=Cluster0";
-mongoose.connect(MONGO_URI).catch(() => console.log("🍃 DB Offline rejimda"));
+const MONGO_URI = process.env.MONGO_URI;
+mongoose.connect(MONGO_URI).catch((err) => console.log("🍃 DB Error:", err.message));
 
 const User = mongoose.model("User", new mongoose.Schema({
   telegramId: { type: Number, unique: true, required: true },
@@ -42,7 +42,7 @@ const adminMenu = Markup.keyboard([
   ["⬅️ Bosh menyu"]
 ]).resize();
 
-// HTML uchun maxsus belgilarni xavfsiz qilish funksiyasi
+// 🔒 Ismlardagi g'alati belgilarni xavfsiz qiluvchi funksiya
 function escapeHTML(text) {
   if (!text) return "";
   return text
@@ -55,7 +55,7 @@ function escapeHTML(text) {
 bot.start(async (ctx) => {
   ctx.session = {};
   try {
-    // 🛠 MONGOOSE ESKIRISH OGOHLANTIRIShI TUZATILDI: returnDocument: 'after' qo'shildi
+    // Mongoose warning tuzatildi: returnDocument qo'shildi
     await User.findOneAndUpdate(
       { telegramId: ctx.from.id },
       { 
@@ -84,7 +84,7 @@ bot.hears("⬅️ Bosh menyu", (ctx) => {
   ctx.reply("Bosh menyu:", mainMenu);
 });
 
-// ================= 🔥 TUZATILGAN XAFSIZ STATISTIKA (HTML FORMATDA) =================
+// ================= 🔥 CRASH BO'LMAYDIGAN YANGI STATISTIKA =================
 bot.hears("📊 Statistika", async (ctx) => {
   if (ctx.from.id !== ADMIN_ID) return;
 
@@ -99,7 +99,7 @@ bot.hears("📊 Statistika", async (ctx) => {
       return ctx.reply("📊 <b>Bot statistikasi:</b>\n\nHozircha obunachilar mavjud emas.", { parse_mode: "HTML" });
     }
 
-    // Markdown'dan HTML'ga o'tildi - crash mutlaqo bo'lmaydi endi!
+    // Markdown butunlay olib tashlandi, endi hammasi sof HTML formatda!
     let report = `📊 <b>BOT STATISTIKASI</b>\n👥 Jami obunachilar: <b>${count} ta</b>\n\n📋 <b>Foydalanuvchilar ro'yxati:</b>\n`;
 
     users.forEach((user, index) => {
@@ -110,13 +110,14 @@ bot.hears("📊 Statistika", async (ctx) => {
 
     if (waiting) await ctx.deleteMessage(waiting.message_id).catch(() => {});
 
+    // Agar ro'yxat juda uzun bo'lsa, qismlarga bo'lib yuboradi
     if (report.length > 4000) {
       const chunks = report.match(/[\s\S]{1,4000}/g);
       for (const chunk of chunks) {
-        await ctx.reply(chunk, { parse_mode: "HTML" }).catch(err => console.error("Chunk send error:", err.message));
+        await ctx.reply(chunk, { parse_mode: "HTML" }).catch(() => {});
       }
     } else {
-      await ctx.reply(report, { parse_mode: "HTML" }).catch(err => console.error("Report send error:", err.message));
+      await ctx.reply(report, { parse_mode: "HTML" }).catch(() => {});
     }
 
   } catch (error) {
@@ -330,7 +331,7 @@ bot.action(/dl_(m|v)_(.+)/, async (ctx) => {
 
 // ================= START BOT =================
 bot.launch({ dropPendingUpdates: true })
-  .then(() => console.log("🔥 BOT IS LIVE AND FULLY STABLE WITH HTML ESCAPING!"))
+  .then(() => console.log("🔥 BOT IS LIVE AND FULLY STABLE IN HTML MODE!"))
   .catch((err) => console.error(err.message));
 
 process.once("SIGINT", () => bot.stop("SIGINT"));
