@@ -9,7 +9,7 @@ const fs = require("fs");
 const path = require("path");
 
 // ⚠️ DIQQAT: Bu yerga o'zingizning Telegram ID raqamingizni yozing!
-const ADMIN_ID = process.env.ADMIN_ID ? parseInt(process.env.ADMIN_ID) : 123456789; 
+const ADMIN_ID = process.env.ADMIN_ID ? parseInt(process.env.ADMIN_ID) :8125836834; 
 
 // ================= EXPRESS WEB SERVER =================
 const app = express();
