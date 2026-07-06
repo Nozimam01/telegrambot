@@ -1,24 +1,20 @@
 require("dotenv").config();
-
 const { Telegraf, Markup, session } = require("telegraf");
 const express = require("express");
 const mongoose = require("mongoose");
 const axios = require("axios");
 const crypto = require("crypto");
-const { exec } = require("child_process");
-const fs = require("fs");
-const path = require("path");
 const youtubesearchapi = require("youtube-search-api");
 
 // ================= EXPRESS WEB SERVER =================
 const app = express();
-app.get("/", (req, res) => res.send("🟢 High-Performance Stabilized Engine Online"));
+app.get("/", (req, res) => res.send("🟢 High-Speed Movie & Music Engine Online"));
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
 
 // ================= MONGOOSE DATABASE =================
 const MONGO_URI = process.env.MONGO_URI || "mongodb+srv://botuser:botpass2026@cluster0.ixwxk0c.mongodb.net/?appName=Cluster0";
-mongoose.connect(MONGO_URI).catch(() => {});
+mongoose.connect(MONGO_URI).catch(() => console.log("🍃 DB Offline rejimda"));
 
 const User = mongoose.model("User", new mongoose.Schema({
   telegramId: { type: Number, unique: true, required: true },
@@ -31,42 +27,45 @@ const bot = new Telegraf(process.env.BOT_TOKEN);
 bot.use(session());
 bot.use((ctx, next) => { ctx.session ||= {}; return next(); });
 
+// Yangilangan asosiy menyu
 const mainMenu = Markup.keyboard([
-  ["🎵 Musiqa qidirish", "🎬 Kino (Trailer) qidirish"]
+  ["🎵 Musiqa qidirish", "🎬 Kino (Treyler) qidirish"]
 ]).resize();
 
 // ================= COMMANDS =================
-bot.start((ctx) => {
+bot.start(async (ctx) => {
   ctx.session = {};
-  ctx.reply("🚀 Tizim to'liq barqarorlashtirildi. Muammosiz foydalanishingiz mumkin.\n\nQo'shiq nomini yozing yoki istalgan havolani yuboring:", mainMenu);
+  try {
+    await User.findOneAndUpdate(
+      { telegramId: ctx.from.id },
+      { username: ctx.from.username, firstName: ctx.from.first_name },
+      { upsert: true }
+    );
+  } catch (e) {}
+  
+  ctx.reply("🚀 Salom! Kino treylerlari va musiqalarni 5 soniyada yuklovchi botga xush kelibsiz.\n\nBo'limni tanlang yoki to'g'ridan-to'g'ri havola yuboring:", mainMenu);
 });
 
 bot.hears("🎵 Musiqa qidirish", (ctx) => {
   ctx.session.mode = "music";
-  ctx.reply("🎵 Qo'shiq nomini yoki ijrochini yozing:");
+  ctx.reply("🎵 Yuklamoqchi bo'lgan qo'shiq yoki ijrochi nomini kiriting:");
 });
 
-bot.hears("🎬 Kino (Trailer) qidirish", (ctx) => {
+bot.hears("🎬 Kino (Treyler) qidirish", (ctx) => {
   ctx.session.mode = "movie";
-  ctx.reply("🎬 Kino yoki trailer nomini yozing:");
+  ctx.reply("🎬 Qidirilayotgan kino yoki serial nomini yozing (Men treylerini topaman):");
 });
 
-// Maxsus belgilarni tozalash (Telegram xatolik bermasligi uchun)
+// Maxsus belgilarni tozalash
 function cleanTitle(title) {
-  if (!title) return "Musiqa";
-  return title
-    .replace(/&amp;/g, "&")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/[<>]/g, "");
+  if (!title) return "Media fayl";
+  return title.replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/[<>]/g, "");
 }
 
-// Havolalarni playlistlardan va ortiqcha parametrlardan tozalash funksiyasi
-function cleanYoutubeUrl(url) {
+function cleanUrl(url) {
   try {
     if (url.includes("youtube.com") || url.includes("youtu.be")) {
       const urlObj = new URL(url);
-      // Agar playlist bo'lsa, uni oddiy video havolasiga aylantiradi
       if (urlObj.searchParams.has("list")) {
         urlObj.searchParams.delete("list");
         urlObj.searchParams.delete("index");
@@ -77,7 +76,7 @@ function cleanYoutubeUrl(url) {
   return url;
 }
 
-// ================= 🔍 YOUTUBE QIDIRUV TIZIMI =================
+// ================= 🔍 ULTRA TEZKOR YOUTUBE QIDIRUV =================
 async function searchYouTube(ctx, query) {
   const waiting = await ctx.reply("🔍 Qidirilmoqda...").catch(() => null);
   
@@ -97,11 +96,11 @@ async function searchYouTube(ctx, query) {
       if (!videoId) return;
       
       const title = cleanTitle(item.title);
-      const displayTitle = title.length > 45 ? title.slice(0, 42) + "..." : title;
+      const displayTitle = title.length > 40 ? title.slice(0, 37) + "..." : title;
 
       buttons.push([
         Markup.button.callback(
-          isMusic ? `🎵 ${displayTitle}` : `🎥 ${displayTitle}`, 
+          isMusic ? `🎵 ${displayTitle}` : `🎬 ${displayTitle}`, 
           `dl_${isMusic ? 'm' : 'v'}_${videoId}`
         )
       ]);
@@ -112,88 +111,80 @@ async function searchYouTube(ctx, query) {
 
   } catch (err) {
     if (waiting) await ctx.deleteMessage(waiting.message_id).catch(() => {});
-    ctx.reply("⚠️ Qidiruvda uzilish bo'ldi, qayta urinib ko'ring.");
+    ctx.reply("⚠️ Qidiruv tizimida uzilish bo'ldi. Qayta urinib ko'ring.");
   }
 }
 
-// ================= 🔥 YUKLOVCHI TIZIM =================
-function runLocalDl(command) {
-  return new Promise((resolve, reject) => {
-    exec(command, (error, stdout, stderr) => { if (error) reject(error); else resolve(stdout); });
-  });
-}
+// ================= ⚡️ 5 SONIYALIK ULTRA TEZKOR YUKLOVCHI =================
+async function fastDownloadEngine(ctx, targetUrl, isAudio = false) {
+  const waiting = await ctx.reply("⏳ 5 soniyada tayyorlanmoqda...").catch(() => null);
+  const url = cleanUrl(targetUrl);
 
-async function downloadAndSend(ctx, targetUrl, isAudio = false) {
-  const waiting = await ctx.reply("⏳ So'rov qayta ishlanmoqda...").catch(() => null);
-  
-  // Havolani playlistlardan tozalash
-  const url = cleanYoutubeUrl(targetUrl);
+  try {
+    let apiEndpoint = "";
+    if (url.includes("instagram.com") || url.includes("tiktok.com")) {
+      apiEndpoint = `https://api.sandipbaruwal.com/insta/download?url=${encodeURIComponent(url)}`;
+    } else {
+      apiEndpoint = `https://api.cobalt.tools/api/json`;
+    }
 
-  // 1. INSTAGRAM & TIKTOK APILAR
-  if (url.includes("instagram.com") || url.includes("tiktok.com")) {
-    try {
-      if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "⚡️ Tarmoqdan yuklanmoqda...").catch(() => {});
-      
-      const res = await axios.get(`https://api.sandipbaruwal.com/insta/download?url=${encodeURIComponent(url)}`, { timeout: 15000 });
+    if (url.includes("instagram.com") || url.includes("tiktok.com")) {
+      const res = await axios.get(apiEndpoint, { timeout: 7000 });
       const directUrl = res.data?.data?.[0]?.url;
 
       if (directUrl) {
+        if (isAudio) await ctx.replyWithAudio({ url: directUrl }).catch(() => {});
+        else await ctx.replyWithVideo({ url: directUrl }, { caption: "🎬 @SizningBotiz" }).catch(() => {});
+        if (waiting) await ctx.deleteMessage(waiting.message_id).catch(() => {});
+        return;
+      }
+    } else {
+      // YouTube/Treylerlar uchun ultra tezkor Cobalt yuklagich
+      const res = await axios.post(apiEndpoint, {
+        url: url,
+        isAudioOnly: isAudio,
+        aFormat: "mp3",
+        vQuality: "720"
+      }, {
+        headers: { "Accept": "application/json", "Content-Type": "application/json" },
+        timeout: 8000
+      });
+
+      if (res.data && res.data.url) {
         if (isAudio) {
-          await ctx.replyWithAudio({ url: directUrl }).catch(() => {});
+          await ctx.replyWithAudio({ url: res.data.url }).catch(() => {});
         } else {
-          await ctx.replyWithVideo({ url: directUrl }, { caption: "🎬 Yuklandi!" }).catch(() => {});
+          await ctx.replyWithVideo({ url: res.data.url }, { caption: "🎬 Treyler tayyor! @SizningBotiz" }).catch(() => {});
         }
         if (waiting) await ctx.deleteMessage(waiting.message_id).catch(() => {});
         return;
       }
-    } catch (apiErr) {
-      console.log("Zaxira rejimga o'tildi.");
     }
-  }
-
-  // 2. MAHALLIY YT-DLP CORE (PLAYLISTSIZ)
-  const fileId = crypto.randomUUID().slice(0, 8);
-  const outputTemplate = path.join(__dirname, `media_${fileId}.%(ext)s`);
-
-  try {
-    if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "⚡️ Yuklash boshlandi...").catch(() => {});
     
-    // --no-playlist buyrug'i orqali xatoliklarni oldini olamiz
-    let command = isAudio 
-      ? `yt-dlp --no-playlist --no-check-certificates --no-warnings -x --audio-format mp3 --audio-quality 0 -o "${outputTemplate}" "${url}"`
-      : `yt-dlp --no-playlist --no-check-certificates --no-warnings -f "b[ext=mp4]/bv*[ext=mp4]+ba[ext=m4a]/b" -o "${outputTemplate}" "${url}"`;
+    throw new Error("Tezkor shlyuz javob bermadi");
 
-    await runLocalDl(command);
-
-    const files = fs.readdirSync(__dirname);
-    const downloadedFile = files.find(f => f.startsWith(`media_${fileId}`));
-
-    if (downloadedFile) {
-      const finalPath = path.join(__dirname, downloadedFile);
-      if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "🚀 Telegramga uzatilmoqda...").catch(() => {});
-      
-      if (isAudio) {
-        await ctx.replyWithAudio({ source: finalPath }, { filename: "musiqa.mp3" });
-      } else {
-        await ctx.replyWithVideo({ source: finalPath }, { caption: "🎬 Medianingiz tayyor!" });
-      }
-      fs.unlinkSync(finalPath);
-    } else {
-      throw new Error("Fayl topilmadi.");
-    }
   } catch (error) {
-    console.error("Yuklash xatosi:", error.message);
-    if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "❌ Kechirasiz, ushbu videoni yuklab bo'lmadi (Bloklangan yoki Playlist uzildi).").catch(() => {});
-  } finally {
-    if (waiting) await ctx.deleteMessage(waiting.message_id).catch(() => {});
+    try {
+      if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "⚡️ Zaxira tarmoq ulanmoqda...").catch(() => {});
+      const backupRes = await axios.get(`https://co.wuk.sh/api/json?url=${encodeURIComponent(url)}`);
+      if (backupRes.data && backupRes.data.url) {
+        if (isAudio) await ctx.replyWithAudio({ url: backupRes.data.url });
+        else await ctx.replyWithVideo({ url: backupRes.data.url }, { caption: "🎬 @SizningBotiz" });
+        if (waiting) await ctx.deleteMessage(waiting.message_id).catch(() => {});
+        return;
+      }
+    } catch (e) {}
+
+    if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "❌ Kechirasiz, yuklash amalga oshmadi. Link noto'g'ri yoki yuklash limiti tugagan.").catch(() => {});
   }
 }
 
 // ================= SMART CONTROLLER =================
 bot.on("text", async (ctx) => {
   const text = ctx.message.text.trim();
-  if (text === "🎬 Kino (Trailer) qidirish" || text === "🎵 Musiqa qidirish") return;
+  if (text === "🎬 Kino (Treyler) qidirish" || text === "🎵 Musiqa qidirish") return;
 
+  // Havolalarni formatlashga o'tkazish
   if (/https?:\/\//.test(text)) {
     const shortKey = crypto.randomUUID().slice(0, 8);
     ctx.session[shortKey] = text;
@@ -202,8 +193,12 @@ bot.on("text", async (ctx) => {
     ]));
   }
 
-  if (!ctx.session.mode) return ctx.reply("💡 Davom etish uchun pastki menyudan bo'limni tanlang.", mainMenu);
-  await searchYouTube(ctx, ctx.session.mode === "movie" ? text + " trailer" : text);
+  // Aqlli Qidiruv algoritmi
+  if (!ctx.session.mode) ctx.session.mode = "music";
+  
+  // Agar foydalanuvchi kino rejimida bo'lsa, so'rov oxiriga "trailer" so'zi qo'shiladi
+  const searchQuery = ctx.session.mode === "movie" ? `${text} official trailer` : text;
+  await searchYouTube(ctx, searchQuery);
 });
 
 // ================= BUTTON ACTIONS =================
@@ -212,21 +207,20 @@ bot.action(/fmt_(v|m)_(.+)/, async (ctx) => {
     await ctx.answerCbQuery().catch(() => {});
     const url = ctx.session[ctx.match[2]];
     if (!url) return ctx.reply("❌ Seans muddati tugagan. Linkni qayta yuboring.");
-    await downloadAndSend(ctx, url, ctx.match[1] === "m");
+    await fastDownloadEngine(ctx, url, ctx.match[1] === "m");
   } catch (e) {}
 });
 
 bot.action(/dl_(m|v)_(.+)/, async (ctx) => {
   try {
     await ctx.answerCbQuery().catch(() => {});
-    await downloadAndSend(ctx, `https://youtube.com/watch?v=${ctx.match[2]}`, ctx.match[1] === "m");
+    await fastDownloadEngine(ctx, `https://youtube.com/watch?v=${ctx.match[2]}`, ctx.match[1] === "m");
   } catch (e) {}
 });
 
-// ================= SAFE START BOT =================
-// Timeout xatolarining oldini olish uchun launch toza va sodda holatga keltirildi
-bot.launch()
-  .then(() => console.log("🔥 BOT SHeCh QANDAY TIMEOUT VA PLAYLIST XATOLARISIZ ISHLAMOQDA!"))
+// ================= START BOT =================
+bot.launch({ dropPendingUpdates: true })
+  .then(() => console.log("🔥 MOVIE & MUSIC ULTRA ENGINE READY!"))
   .catch((err) => console.error("Launch Error:", err.message));
 
 process.once("SIGINT", () => bot.stop("SIGINT"));
