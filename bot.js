@@ -9,7 +9,6 @@ const fs = require("fs");
 const path = require("path");
 const ytSearch = require("yt-search");
 
-// Admin ID raqamingiz
 const ADMIN_ID = process.env.ADMIN_ID ? parseInt(process.env.ADMIN_ID) : 8125836834; 
 
 // ================= EXPRESS WEB SERVER =================
@@ -134,11 +133,24 @@ async function searchYouTubeLive(ctx, query) {
     }
 
     const isMusic = ctx.session.mode === "music";
-    const buttons = videos.map((video) => {
-      const title = video.title.replace(/[<>]/g, "").trim();
-      const displayTitle = title.length > 35 ? title.slice(0, 32) + "..." : title;
+    const buttons = [];
+
+    videos.forEach((video) => {
+      const cleanTitle = video.title.replace(/[<>:"/\\|?*]/g, "").trim();
+      const cleanAuthor = (video.author?.name || "YouTube").replace(/[<>:"/\\|?*]/g, "").trim();
+      
+      // Dinamik UUID orqali ma'lumotlarni seansga xavfsiz saqlaymiz
+      const trackKey = crypto.randomUUID().slice(0, 8);
+      ctx.session[trackKey] = {
+        url: video.url,
+        title: cleanTitle,
+        performer: cleanAuthor
+      };
+
+      const displayTitle = cleanTitle.length > 35 ? cleanTitle.slice(0, 32) + "..." : cleanTitle;
       const emoji = isMusic ? "🎵" : "🎬";
-      return [Markup.button.callback(`${emoji} ${displayTitle}`, `dl_${isMusic ? 'm' : 'v'}_${video.videoId}`)];
+      
+      buttons.push([Markup.button.callback(`${emoji} ${displayTitle}`, `dl_${isMusic ? 'm' : 'v'}_${trackKey}`)]);
     });
 
     if (waiting) await ctx.deleteMessage(waiting.message_id).catch(() => {});
@@ -157,36 +169,38 @@ function runLocalDl(command) {
 }
 
 // ================= 100% ORIGINAL NOM BILAN YUKLASH ENGINE =================
-async function downloadAndSend(ctx, targetUrl, isAudio = false) {
-  const waiting = await ctx.reply("⏳ Yuklanmoqda va formatlanmoqda...").catch(() => null);
+async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = "", customPerformer = "") {
+  const waiting = await ctx.reply("⏳ Yuklanmoqda...").catch(() => null);
   let url = targetUrl;
   
-  let videoTitle = "";
-  let performerName = "";
+  let videoTitle = customTitle;
+  let performerName = customPerformer;
 
-  // 1. Havolani tozalash va YouTube orqali qo'shiq nomini aniqlash
-  try {
-    const urlObj = new URL(targetUrl);
-    if (urlObj.searchParams.has("list")) {
-      urlObj.searchParams.delete("list");
-      urlObj.searchParams.delete("index");
-      url = urlObj.toString();
-    }
-    
-    if (url.includes("youtube.com") || url.includes("youtu.be")) {
-      const searchResults = await ytSearch(url);
-      if (searchResults && searchResults.title) {
-        videoTitle = searchResults.title.replace(/[<>:"/\\|?*]/g, "").trim();
-        performerName = searchResults.author?.name || "YouTube Player";
+  // Agar havola to'g'ridan-to'g'ri yuborilgan bo'lsa va nomi bo'lmasa:
+  if (!videoTitle) {
+    try {
+      const urlObj = new URL(targetUrl);
+      if (urlObj.searchParams.has("list")) {
+        urlObj.searchParams.delete("list");
+        urlObj.searchParams.delete("index");
+        url = urlObj.toString();
       }
-    }
-  } catch (e) {}
+      
+      if (url.includes("youtube.com") || url.includes("youtu.be")) {
+        const searchResults = await ytSearch(url);
+        if (searchResults && searchResults.title) {
+          videoTitle = searchResults.title.replace(/[<>:"/\\|?*]/g, "").trim();
+          performerName = searchResults.author?.name || "YouTube Player";
+        }
+      }
+    } catch (e) {}
+  }
 
   const fileId = crypto.randomUUID().slice(0, 8);
   const ext = isAudio ? "mp3" : "mp4";
   const finalPath = path.join(__dirname, `media_${fileId}.${ext}`);
 
-  // 2. ULTRA-SPEED COBALT API TIZIMI
+  // 1. ULTRA-SPEED COBALT API TIZIMI
   try {
     const res = await axios.post(`https://api.cobalt.tools/api/json`, {
       url: url,
@@ -195,29 +209,21 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false) {
       vQuality: "720"
     }, {
       headers: { "Accept": "application/json", "Content-Type": "application/json" },
-      timeout: 10000
+      timeout: 15000
     });
 
     if (res.data && res.data.url) {
       if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "🚀 Telegram'ga uzatilmoqda...").catch(() => {});
       
-      // 🌟 Agar YouTube qidiruvda nom topilmagan bo'lsa (Insta/TikTok uchun), Cobalt API bergan original fayl nomini olamiz
       if (!videoTitle && res.data.filename) {
         videoTitle = res.data.filename.replace(/\.[^/.]+$/, "").replace(/[<>:"/\\|?*]/g, "").trim();
       }
       
-      // Agar baribir bo'sh qolib ketgan bo'lsa, xunuk chiqmasligi uchun chiroyli nom beramiz
       if (!videoTitle) videoTitle = isAudio ? "Musiqa" : "Video Media";
-      if (!performerName) performerName = isAudio ? "Original Audio" : "Social Media";
+      if (!performerName) performerName = isAudio ? "Musiqa Bot" : "Social Media";
 
-      // Oqimli yuklash tizimi (Stream)
       const writer = fs.createWriteStream(finalPath);
-      const response = await axios({
-        url: res.data.url,
-        method: 'GET',
-        responseType: 'stream'
-      });
-
+      const response = await axios({ url: res.data.url, method: 'GET', responseType: 'stream' });
       response.data.pipe(writer);
 
       await new Promise((resolve, reject) => {
@@ -225,15 +231,10 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false) {
         writer.on('error', reject);
       });
 
-      // Telegram'ga yuborish qismi (Audio Metadata to'g'rilandi)
       if (isAudio) {
         await ctx.replyWithAudio(
           { source: finalPath }, 
-          { 
-            title: videoTitle, 
-            performer: performerName,
-            filename: `${videoTitle}.mp3` // Pleyer nomini toza saqlaydi
-          }
+          { title: videoTitle, performer: performerName, filename: `${videoTitle}.mp3` }
         );
       } else {
         await ctx.replyWithVideo(
@@ -250,7 +251,7 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false) {
     console.log("Cobalt xatosi, zaxira tizimiga o'tildi...");
   }
 
-  // 3. ZAXIRA TIZIMI (yt-dlp local yuklash)
+  // 2. ZAXIRA TIZIMI (yt-dlp)
   try {
     if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "⚡️ Zaxira tizimi ishga tushdi...").catch(() => {});
     const outputTemplate = path.join(__dirname, `media_${fileId}.%(ext)s`);
@@ -335,7 +336,11 @@ bot.action(/fmt_(v|m)_(.+)/, async (ctx) => {
 bot.action(/dl_(m|v)_(.+)/, async (ctx) => {
   try {
     await ctx.answerCbQuery().catch(() => {});
-    await downloadAndSend(ctx, `https://youtube.com/watch?v=${ctx.match[2]}`, ctx.match[1] === "m");
+    const trackData = ctx.session[ctx.match[2]];
+    if (!trackData) return ctx.reply("❌ Qidiruv seansi muddati tugagan. Iltimos, qaytadan qidiring.");
+    
+    // Original sarlavha va ijrochi nomini yuklash motoriga uzatamiz
+    await downloadAndSend(ctx, trackData.url, ctx.match[1] === "m", trackData.title, trackData.performer);
   } catch (e) {}
 });
 
