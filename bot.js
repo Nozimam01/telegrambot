@@ -23,8 +23,8 @@ mongoose.connect(MONGO_URI).catch((err) => console.log("🍃 DB Error:", err.mes
 
 const User = mongoose.model("User", new mongoose.Schema({
   telegramId: { type: Number, unique: true, required: true },
-  username: { type: String, default: "Mavjud emas" },
-  firstName: { type: String, default: "Ismsiz" },
+  username: { type: String, default: "@Nozimam_01" },
+  firstName: { type: String, default: "Nozima" },
   date: { type: Date, default: Date.now }
 }));
 
