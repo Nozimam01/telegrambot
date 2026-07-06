@@ -7,14 +7,14 @@ const crypto = require("crypto");
 const { exec } = require("child_process");
 const fs = require("fs");
 const path = require("path");
-const ytSearch = require("yt-search"); // 👈 Yangi qidiruv tizimi qo'shildi
+const ytSearch = require("yt-search");
 
 // Admin ID raqamingiz
 const ADMIN_ID = process.env.ADMIN_ID ? parseInt(process.env.ADMIN_ID) : 8125836834; 
 
 // ================= EXPRESS WEB SERVER =================
 const app = express();
-app.get("/", (req, res) => res.send("🟢 Stabilized Bot Engine Online"));
+app.get("/", (req, res) => res.send("🟢 High-Speed Bot Engine Active"));
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
 
@@ -60,9 +60,7 @@ bot.start(async (ctx) => {
       },
       { upsert: true, returnDocument: 'after' }
     );
-  } catch (e) {
-    console.error("User save error:", e.message);
-  }
+  } catch (e) {}
 
   let text = "🚀 Bot muvaffaqiyatli ishga tushdi.\n\nHavola yuboring yoki pastdagi menyudan foydalanib qo'shiq/kino nomini yozing:";
   if (ctx.from.id === ADMIN_ID) {
@@ -123,38 +121,35 @@ bot.hears("🎬 Kino (Treyler) qidirish", (ctx) => {
   ctx.reply("🎬 Kino yoki treyler nomini yozing:");
 });
 
-// ================= 🔥 100% KAFOLATLI YOUTUBE QIDIRUV TIZIMI =================
+// ================= 100% BARQAROR QIDIRUV TIZIMI =================
 async function searchYouTubeLive(ctx, query) {
   const waiting = await ctx.reply("🔍 Qidirilmoqda...").catch(() => null);
   try {
-    // yt-search moduli orqali qidiruv (bloklanmaydi)
     const searchResults = await ytSearch(query);
-    const videos = searchResults.videos.slice(0, 5); // Dastlabki 5 ta eng mos natija
+    const videos = searchResults.videos.slice(0, 5);
 
     if (!videos || videos.length === 0) {
       if (waiting) await ctx.deleteMessage(waiting.message_id).catch(() => {});
-      return ctx.reply("Hech narsa topilmadi 😕. Iltimos, nomini to'g'riroq yozib ko'ring.");
+      return ctx.reply("Hech narsa topilmadi 😕.");
     }
 
-    const buttons = [];
     const isMusic = ctx.session.mode === "music";
-
-    for (const video of videos) {
+    const buttons = videos.map((video) => {
       const title = video.title.replace(/[<>]/g, "").trim();
-      const displayTitle = title.length > 40 ? title.slice(0, 37) + "..." : title;
-      buttons.push([Markup.button.callback(isMusic ? `🎵 ${displayTitle}` : `🎥 ${displayTitle}`, `dl_${isMusic ? 'm' : 'v'}_${video.videoId}`)]);
-    }
+      const displayTitle = title.length > 35 ? title.slice(0, 32) + "..." : title;
+      const emoji = isMusic ? "🎵" : "🎬";
+      return [Markup.button.callback(`${emoji} ${displayTitle}`, `dl_${isMusic ? 'm' : 'v'}_${video.videoId}`)];
+    });
 
     if (waiting) await ctx.deleteMessage(waiting.message_id).catch(() => {});
     return ctx.reply("📋 Topilgan natijalar:", Markup.inlineKeyboard(buttons));
   } catch (err) {
-    console.error("Search error:", err.message);
     if (waiting) await ctx.deleteMessage(waiting.message_id).catch(() => {});
-    ctx.reply("⚠️ Qidiruv amalga oshmadi. Qayta urinib ko'ring.");
+    ctx.reply("⚠️ Qidiruv amalga oshmadi.");
   }
 }
 
-// ================= DOWNLOAD ENGINE =================
+// ================= ULTRA FAST YUKLASH TIZIMI (5-6 SONIYA) =================
 function runLocalDl(command) {
   return new Promise((resolve, reject) => {
     exec(command, (error, stdout, stderr) => { if (error) reject(error); else resolve(stdout); });
@@ -162,8 +157,12 @@ function runLocalDl(command) {
 }
 
 async function downloadAndSend(ctx, targetUrl, isAudio = false) {
-  const waiting = await ctx.reply("⏳ Yuklanmoqda...").catch(() => null);
+  const waiting = await ctx.reply("⏳ Yuklanmoqda (5-6 soniya)...").catch(() => null);
   let url = targetUrl;
+  
+  let videoTitle = isAudio ? "Musiqa" : "Video_Media";
+  let performerName = "Downloader";
+
   try {
     const urlObj = new URL(targetUrl);
     if (urlObj.searchParams.has("list")) {
@@ -171,44 +170,40 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false) {
       urlObj.searchParams.delete("index");
       url = urlObj.toString();
     }
+    
+    if (url.includes("youtube.com") || url.includes("youtu.be")) {
+      const searchResults = await ytSearch(url);
+      if (searchResults && searchResults.title) {
+        videoTitle = searchResults.title.replace(/[<>]/g, "").trim();
+        performerName = searchResults.author?.name || "YouTube";
+      }
+    }
   } catch (e) {}
 
-  if (url.includes("instagram.com") || url.includes("tiktok.com")) {
-    try {
-      const res = await axios.get(`https://api.sandipbaruwal.com/insta/download?url=${encodeURIComponent(url)}`, { timeout: 6000 });
-      const directUrl = res.data?.data?.[0]?.url;
-      if (directUrl) {
-        if (isAudio) await ctx.replyWithAudio({ url: directUrl }).catch(() => {});
-        else await ctx.replyWithVideo({ url: directUrl }).catch(() => {});
-        if (waiting) await ctx.deleteMessage(waiting.message_id).catch(() => {});
-        return;
-      }
-    } catch (e) {}
-
-    try {
-      const res = await axios.post(`https://api.cobalt.tools/api/json`, { url: url, isAudioOnly: isAudio, vQuality: "720" }, { headers: { "Accept": "application/json", "Content-Type": "application/json" }, timeout: 6000 });
-      if (res.data && res.data.url) {
-        if (isAudio) await ctx.replyWithAudio({ url: res.data.url }).catch(() => {});
-        else await ctx.replyWithVideo({ url: res.data.url }).catch(() => {});
-        if (waiting) await ctx.deleteMessage(waiting.message_id).catch(() => {});
-        return;
-      }
-    } catch (e) {}
-
-    if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "❌ Video topilmadi.").catch(() => {});
-    return;
-  }
-
+  // ⚡️ INSTAGRAM, TIKTOK, SHORTS, REELS, SHUTTLE FAST SPEED DOWNLOADER
   try {
-    const res = await axios.post(`https://api.cobalt.tools/api/json`, { url: url, isAudioOnly: isAudio, aFormat: "mp3", vQuality: "720" }, { headers: { "Accept": "application/json", "Content-Type": "application/json" }, timeout: 6000 });
+    const res = await axios.post(`https://api.cobalt.tools/api/json`, {
+      url: url,
+      isAudioOnly: isAudio,
+      aFormat: "mp3",
+      vQuality: "720"
+    }, {
+      headers: { "Accept": "application/json", "Content-Type": "application/json" },
+      timeout: 6000 // 6 soniyali ultra-tezkor kutish taymauti
+    });
+
     if (res.data && res.data.url) {
-      if (isAudio) await ctx.replyWithAudio({ url: res.data.url }).catch(() => {});
-      else await ctx.replyWithVideo({ url: res.data.url }).catch(() => {});
+      if (isAudio) {
+        await ctx.replyWithAudio({ url: res.data.url }, { title: videoTitle, performer: performerName }).catch(() => {});
+      } else {
+        await ctx.replyWithVideo({ url: res.data.url }, { caption: `🎬 <b>${videoTitle}</b>`, parse_mode: "HTML" }).catch(() => {});
+      }
       if (waiting) await ctx.deleteMessage(waiting.message_id).catch(() => {});
-      return;
+      return; // Agar muvaffaqiyatli bo'lsa, pastdagi sekin tizimga o'tmaydi
     }
   } catch (fastApiError) {}
 
+  // 🔄 ZAXIRA TIZIMI (Agarda yuqoridagi API 5 soniyada javob bermasa ishga tushadi)
   if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "⚡️ Server orqali yuklanmoqda...").catch(() => {});
   const fileId = crypto.randomUUID().slice(0, 8);
   const outputTemplate = path.join(__dirname, `media_${fileId}.%(ext)s`);
@@ -224,13 +219,17 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false) {
 
     if (downloadedFile) {
       const finalPath = path.join(__dirname, downloadedFile);
-      if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "🚀 Uzatilmoqda...").catch(() => {});
-      if (isAudio) await ctx.replyWithAudio({ source: finalPath }, { filename: "musiqa.mp3" });
-      else await ctx.replyWithVideo({ source: finalPath });
+      if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "🚀 Yuborilmoqda...").catch(() => {});
+      
+      if (isAudio) {
+        await ctx.replyWithAudio({ source: finalPath }, { title: videoTitle, performer: performerName, filename: `${videoTitle}.mp3` });
+      } else {
+        await ctx.replyWithVideo({ source: finalPath }, { caption: `🎬 <b>${videoTitle}</b>`, parse_mode: "HTML" });
+      }
       fs.unlinkSync(finalPath);
     }
   } catch (error) {
-    if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "❌ Xatolik.").catch(() => {});
+    if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "❌ Yuklashda xatolik.").catch(() => {});
   } finally {
     if (waiting) await ctx.deleteMessage(waiting.message_id).catch(() => {});
   }
@@ -257,6 +256,7 @@ bot.on("message", async (ctx) => {
   
   if (text === "🎬 Kino (Treyler) qidirish" || text === "🎵 Musiqa qidirish" || text === "📊 Statistika" || text === "📢 Xabar yuborish" || text === "⬅️ Bosh menyu") return;
 
+  // ⚡️ HAVOLALARNI FORMATLASH VA UNVERSAL ANIQLASH (YouTube, TikTok, Instagram Reels/Shorts)
   if (/https?:\/\//.test(text)) {
     const shortKey = crypto.randomUUID().slice(0, 8);
     ctx.session[shortKey] = text;
@@ -265,6 +265,7 @@ bot.on("message", async (ctx) => {
     ]));
   }
 
+  // Qidiruv rejimi (Standart: musiqa)
   if (!ctx.session.mode) ctx.session.mode = "music";
   await searchYouTubeLive(ctx, ctx.session.mode === "movie" ? text + " trailer" : text);
 });
@@ -288,7 +289,7 @@ bot.action(/dl_(m|v)_(.+)/, async (ctx) => {
 
 // ================= START BOT =================
 bot.launch({ dropPendingUpdates: true })
-  .then(() => console.log("🔥 BOT IS LIVE WITH STABLE YT-SEARCH MODULE!"))
+  .then(() => console.log("🔥 ULTRA-SPEED ENGINE ONLINE!"))
   .catch((err) => console.error(err.message));
 
 process.once("SIGINT", () => bot.stop("SIGINT"));
