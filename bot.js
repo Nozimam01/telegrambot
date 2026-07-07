@@ -10,7 +10,7 @@ const ADMIN_ID = process.env.ADMIN_ID ? parseInt(process.env.ADMIN_ID) : 8125836
 
 // ================= EXPRESS WEB SERVER =================
 const app = express();
-app.get("/", (req, res) => res.send("🟢 Ultra High-Speed Bot Active"));
+app.get("/", (req, res) => res.send("🟢 Ultimate Stable Bot Engine Active"));
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
 
@@ -143,7 +143,7 @@ async function searchYouTubeLive(ctx, query) {
   }
 }
 
-// ================= SMART H.264 MP4 DOWNLOAD ENGINE =================
+// ================= MULTI-SOURCE HIGH COMPATIBILITY DOWNLOAD ENGINE =================
 async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = "", customPerformer = "") {
   const waiting = await ctx.reply("⚡️").catch(() => null);
   let url = targetUrl;
@@ -151,6 +151,7 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
   let performerName = customPerformer;
 
   const isYouTube = url.includes("youtube.com") || url.includes("youtu.be");
+  const isInstagram = url.includes("instagram.com");
   
   if (!videoTitle && isYouTube) {
     try {
@@ -162,40 +163,51 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
     } catch (e) {}
   }
 
-  if (!videoTitle) videoTitle = url.includes("tiktok.com") ? "TikTok Video" : url.includes("instagram.com") ? "Instagram Reel" : "Media Fayl";
+  if (!videoTitle) videoTitle = url.includes("tiktok.com") ? "TikTok Video" : isInstagram ? "Instagram Reel" : "Media Fayl";
   if (!performerName) performerName = "Downloader";
 
   try {
     let directUrl = null;
 
-    // 🚀 COBALT SERVERLARIGA SPRECIALLASHGAN PAROMETRLAR BERAMIZ (H.264 Standart format majburiy qilinadi)
-    const cobaltServers = [
-      'https://api.cobalt.tools/api/json',
-      'https://cobalt.samet.live/api/json',
-      'https://cobalt.moe/api/json',
-      'https://co.wuk.sh/api/json'
-    ];
-
-    for (const server of cobaltServers) {
+    // 🔥 1-QADAM: INSTAGRAM UCHUN ENG SIFATLI VA STANDARD FORMAT (H.264 MP4) BERUVCHI YANGI PREMIUM API XIZMATI
+    if (isInstagram) {
       try {
-        const res = await axios.post(server, 
-          { 
-            url: url, 
-            downloadMode: isAudio ? 'audio' : 'video', 
-            audioFormat: 'mp3',
-            videoQuality: '720', // Telegram eng yaxshi ko'radigan o'lcham
-            vCodec: 'h264'       // ⚡️ ENG MUHIMI: Qora ekranni yo'qotuvchi standart format majburlanadi!
-          },
-          { headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' }, timeout: 5000 }
-        );
-        if (res.data && res.data.url) {
-          directUrl = res.data.url;
-          break;
+        const instaRes = await axios.get(`https://api.ahmedali.tech/download?url=${encodeURIComponent(url)}`, { timeout: 5000 });
+        if (instaRes.data && instaRes.data.url) {
+          directUrl = instaRes.data.url;
         }
       } catch (e) {}
     }
 
-    // 🔄 COBALTDA BO'LMASA ZAXIRA RAPIDAPI (Bu yerda ham mp4 format olinadi)
+    // 🚀 2-QADAM: AGAR BIRINCHI API O'XSHAMASA YOKI YOUTUBE BO'LSA - GLOBAL YT-DLP / COBALT POOL ISHLAYDI
+    if (!directUrl) {
+      const apiPool = [
+        'https://api.cobalt.tools/api/json',
+        'https://cobalt.samet.live/api/json',
+        'https://co.wuk.sh/api/json'
+      ];
+
+      for (const server of apiPool) {
+        try {
+          const res = await axios.post(server, 
+            { 
+              url: url, 
+              downloadMode: isAudio ? 'audio' : 'video', 
+              audioFormat: 'mp3',
+              videoQuality: '720',
+              vCodec: 'h264' // Qora ekranni majburiy yo'qotish
+            },
+            { headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' }, timeout: 5000 }
+          );
+          if (res.data && res.data.url) {
+            directUrl = res.data.url;
+            break;
+          }
+        } catch (e) {}
+      }
+    }
+
+    // 🔄 3-QADAM: AGAR HAMMASI BAND BO'LSA - SIZNING SHAXSIY RAPIDAPI KANALINGIZ ISHLAYDI
     if (!directUrl) {
       try {
         const responseApi = await axios({
@@ -213,7 +225,7 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
         const apiData = responseApi.data;
         if (apiData) {
           if (apiData.links && apiData.links.length > 0) {
-            const linkObj = isAudio ? apiData.links.find(l => l.type === 'audio') : apiData.links.find(l => (l.type === 'video' || l.quality === 'hd') && !l.url.includes('.m3u8'));
+            const linkObj = isAudio ? apiData.links.find(l => l.type === 'audio') : apiData.links.find(l => l.type === 'video' || l.quality === 'hd');
             directUrl = linkObj ? linkObj.url : apiData.links[0].url;
           } else if (apiData.url) {
             directUrl = apiData.url;
@@ -222,7 +234,7 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
       } catch (apiErr) {}
     }
 
-    // TELEGRAMGA YUBORISH (Endi H.264 codec bilan video tiniq va muammosiz chiqadi)
+    // ⚡️ TELEGRAMGA DIRECT LINK ORQALI YUBORISH (3-4 SONIYA)
     if (directUrl) {
       if (isAudio) {
         await ctx.replyWithAudio({ url: directUrl }, { title: videoTitle, performer: performerName });
@@ -235,7 +247,7 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
   } catch (err) {}
 
   if (waiting) {
-    await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, `❌ Yuklashda xatolik yuz berdi. Havola xato yoki server band.`).catch(() => {});
+    await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, `❌ Yuklashda xatolik yuz berdi. Qaytadan urinib ko'ring.`).catch(() => {});
   }
 }
 
@@ -301,7 +313,7 @@ bot.action(/dl_(m|v)_(.+)/, async (ctx) => {
 });
 
 bot.launch({ dropPendingUpdates: true })
-  .then(() => console.log("🔥 H.264 FIXED CHOPAR ENGINE ONLINE!"))
+  .then(() => console.log("🔥 ULTIMATE STABLE ENGINE ONLINE!"))
   .catch((err) => console.error(err.message));
 
 process.once("SIGINT", () => bot.stop("SIGINT"));
