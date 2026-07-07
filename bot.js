@@ -191,40 +191,44 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
   const ext = isAudio ? "mp3" : "mp4";
   const finalPath = path.join(__dirname, `media_${fileId}.${ext}`);
 
-  // ================= SIZ BERGAN YANGI ALL-IN-ONE API INTEGRATSIYASI =================
+  // ================= SKRINSHOTDAGI ALL-IN-ONE API INTEGRATSIYASI =================
   try {
-    if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "🚀 Fayl tahlil qilinmoqda va yuklanmoqda...").catch(() => {});
+    if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "🚀 RapidAPI orqali tahlil qilinmoqda...").catch(() => {});
     
-    const responseApi = await axios.post(
-      'https://social-download-all-in-one.p.rapidapi.com/v1/social/autolink',
-      { url: url },
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          'x-rapidapi-host': 'social-download-all-in-one.p.rapidapi.com',
-          'x-rapidapi-key': 'd8d01b8fc7msh4b21e81a8a871bcp1307d7jsnd76c8175e018' // Siz taqdim etgan ishchi kalit
-        },
-        timeout: 25000
-      }
-    );
+    const responseApi = await axios({
+      method: 'POST',
+      url: 'https://social-download-all-in-one.p.rapidapi.com/v1/social/autolink',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-rapidapi-host': 'social-download-all-in-one.p.rapidapi.com',
+        'x-rapidapi-key': 'd8d01b8fc7msh4b21e81a8a871bcp1307d7jsnd76c8175e018'
+      },
+      data: {
+        url: url
+      },
+      timeout: 30000
+    });
 
-    // API qaytargan javob ichidan video yoki audio havolasini ajratib olamish
     let mediaUrl = null;
     const apiData = responseApi.data;
 
-    if (apiData) {
-      // API tuzilishiga qarab eng sifatli linkni avtomatik qidiramiz
-      if (isAudio && apiData.audio) mediaUrl = apiData.audio;
-      else if (apiData.video) mediaUrl = apiData.video;
-      else if (apiData.medias && apiData.medias[0]) mediaUrl = apiData.medias[0].url;
-      else if (apiData.url) mediaUrl = apiData.url;
+    if (apiData && apiData.medias && apiData.medias.length > 0) {
+      if (isAudio) {
+        const audioObj = apiData.medias.find(m => m.type === 'audio' || m.extension === 'mp3');
+        mediaUrl = audioObj ? audioObj.url : apiData.medias[0].url;
+      } else {
+        const videoObj = apiData.medias.find(m => m.quality === 'hd' || m.type === 'video') || apiData.medias[0];
+        mediaUrl = videoObj ? videoObj.url : null;
+      }
+    } else if (apiData && apiData.url) {
+      mediaUrl = apiData.url;
     }
 
     if (mediaUrl) {
-      if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "📥 Telegram ekotizimiga uzatilmoqda...").catch(() => {});
+      if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "📥 Fayl yuklab olinmoqda va Telegramga uzatilmoqda...").catch(() => {});
       
-      if (!videoTitle) videoTitle = isTikTok ? "TikTok Video" : isInstagram ? "Instagram Media" : "Social Content";
-      if (!performerName) performerName = "All-In-One Downloader";
+      if (!videoTitle) videoTitle = isTikTok ? "TikTok Video" : isInstagram ? "Instagram Reel" : "Ijtimoiy Tarmoq Mediasi";
+      if (!performerName) performerName = "Media Downloader";
 
       const writer = fs.createWriteStream(finalPath);
       const streamResponse = await axios({ url: mediaUrl, method: 'GET', responseType: 'stream' });
@@ -240,19 +244,18 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
 
       if (fs.existsSync(finalPath)) fs.unlinkSync(finalPath);
       if (waiting) await ctx.deleteMessage(waiting.message_id).catch(() => {});
-      return; // Muvaffaqiyatli yakunlandi!
+      return; 
     }
   } catch (apiErr) {
-    console.error("API xatoligi yuz berdi:", apiErr.message);
+    console.error("RapidAPI ulanish xatosi:", apiErr.message);
   }
 
-  // Barcha urinishlar barbod bo'lsa (masalan, link o'chib ketgan bo'lsa) chiroyli yo'llanma beramiz
   if (waiting) {
     await ctx.telegram.editMessageText(
       ctx.chat.id, 
       waiting.message_id, 
       null, 
-      `❌ <b>Ushbu havolani yuklab bo'lmadi!</b>\n\nHavola xato kiritilgan, profil yopiq yoki ijtimoiy tarmoq xavfsizlik tizimi ushbu videoni yuklashga ruxsat bermadi.\n\n💡 <b>Siz uchun 100% ishlaydigan muqobil:</b> Pastdagi tugmalardan foydalanib o'zingizga kerakli qo'shiq yoki kino nomini shunchaki matn ko'rinishida yozib yuboring. Bot uni qidiruv tizimi orqali sizga 100% muammosiz topib beradi!`, 
+      `❌ <b>Havolani yuklab bo'lmadi!</b>\n\nHavola noto'g'ri, profil yopiq yoki API tizimida vaqtincha uzilish bor.\n\n💡 <b>Siz uchun muqobil yechim:</b> Pastdagi tugmalardan foydalanib o'zingizga kerakli qo'shiq yoki kino nomini shunchaki matn ko'rinishida yozib yuboring. Bot uni ichki qidiruv tizimi orqali sizga 100% muammosiz yuklab beradi!`, 
       { parse_mode: "HTML" }
     ).catch(() => {});
   }
