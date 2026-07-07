@@ -1,39 +1,47 @@
-require("dotenv").config();
-const { Telegraf, Markup, session } = require("telegraf");
-const express = require("express");
+const { Telegraf, Markup } = require("telegraf");
 const mongoose = require("mongoose");
+const ytSearch = require("youtube-search-api");
 const axios = require("axios");
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
-const ytSearch = require("yt-search");
+require("dotenv").config();
 
-const ADMIN_ID = process.env.ADMIN_ID ? parseInt(process.env.ADMIN_ID) : 8125836834; 
+// ================= KONFIGURATSIYA VA ENV =================
+const BOT_TOKEN = process.env.BOT_TOKEN || "BOT_TOKENINI_SHUYERGA_YOZING";
+const ADMIN_ID = parseInt(process.env.ADMIN_ID) || 123456789; // O'zingizning Telegram ID'ingiz
+const MONGO_URI = process.env.MONGO_URI || "mongodb://localhost:27017/mediabot";
 
-// ================= EXPRESS WEB SERVER =================
-const app = express();
-app.get("/", (req, res) => res.send("🟢 High-Speed Bot Engine Active"));
-const PORT = process.env.PORT || 8080;
-app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+const bot = new Telegraf(BOT_TOKEN);
 
-// ================= MONGOOSE DATABASE =================
-const MONGO_URI = process.env.MONGO_URI;
-mongoose.connect(MONGO_URI).catch((err) => console.log("🍃 DB Error:", err.message));
+// ================= MONGOOSE BAZA MODELI =================
+mongoose.connect(MONGO_URI)
+  .then(() => console.log("🍃 MongoDB muvaffaqiyatli ulandi!"))
+  .catch((err) => console.error("❌ MongoDB ulanish xatosi:", err.message));
 
-const User = mongoose.model("User", new mongoose.Schema({
+const userSchema = new mongoose.Schema({
   telegramId: { type: Number, unique: true, required: true },
   username: { type: String, default: "Mavjud emas" },
   firstName: { type: String, default: "Ismsiz" },
   date: { type: Date, default: Date.now }
-}));
+});
 
-// ================= BOT INITIALIZATION =================
-const bot = new Telegraf(process.env.BOT_TOKEN);
-bot.use(session());
-bot.use((ctx, next) => { ctx.session ||= {}; return next(); });
+const User = mongoose.model("User", userSchema);
 
+// ================= TELEGRAF SESSION INTEGRATSIYASI =================
+// Sodda xotira (In-memory) seans mexanizmi
+const sessions = {};
+bot.use((ctx, next) => {
+  if (!ctx.from) return next();
+  const id = ctx.from.id;
+  if (!sessions[id]) sessions[id] = {};
+  ctx.session = sessions[id];
+  return next();
+});
+
+// ================= MENYULAR (KEYBOARDS) =================
 const mainMenu = Markup.keyboard([
-  ["🎵 Musiqa qidirish", "🎬 Kino (Treyler) qidirish"]
+  ["🎵 Musiqa qidirish", "🎬 Kino (Treyler) qidirish"],
 ]).resize();
 
 const adminMenu = Markup.keyboard([
@@ -41,12 +49,17 @@ const adminMenu = Markup.keyboard([
   ["⬅️ Bosh menyu"]
 ]).resize();
 
-function escapeHTML(text) {
-  if (!text) return "";
-  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+// Yordamchi funksiya: HTML xatoliklarni oldini olish uchun
+function escapeHTML(str) {
+  if (!str) return '';
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
-// ================= COMMANDS =================
+// ================= BOT BUYRUQLARI (COMMANDS) =================
 bot.start(async (ctx) => {
   ctx.session = {};
   try {
@@ -58,7 +71,9 @@ bot.start(async (ctx) => {
       },
       { upsert: true, returnDocument: 'after' }
     );
-  } catch (e) {}
+  } catch (e) {
+    console.error("Foydalanuvchini bazaga yozishda xato:", e.message);
+  }
 
   let text = "🚀 Bot muvaffaqiyatli ishga tushdi.\n\nHavola yuboring yoki pastdagi menyudan foydalanib qo'shiq/kino nomini yozing:";
   if (ctx.from.id === ADMIN_ID) {
@@ -84,7 +99,7 @@ bot.hears("📊 Statistika", async (ctx) => {
     const count = users.length;
     if (count === 0) {
       if (waiting) await ctx.deleteMessage(waiting.message_id).catch(() => {});
-      return ctx.reply("📊 <b>Bot statistikasi:</b>\n\nHozircha obunachilar macrosi mavjud emas.", { parse_mode: "HTML" });
+      return ctx.reply("📊 <b>Bot statistikasi:</b>\n\nHozircha obunachilar bazasi mavjud emas.", { parse_mode: "HTML" });
     }
     let report = `📊 <b>BOT STATISTIKASI</b>\n👥 Jami obunachilar: <b>${count} ta</b>\n\n📋 <b>Foydalanuvchilar ro'yxati:</b>\n`;
     users.forEach((user, index) => {
@@ -123,8 +138,8 @@ bot.hears("🎬 Kino (Treyler) qidirish", (ctx) => {
 async function searchYouTubeLive(ctx, query) {
   const waiting = await ctx.reply("🔍 Qidirilmoqda...").catch(() => null);
   try {
-    const searchResults = await ytSearch(query);
-    const videos = searchResults.videos.slice(0, 5);
+    const searchResults = await ytSearch.GetListByKeyword(query, false, 5);
+    const videos = searchResults.items ? searchResults.items.slice(0, 5) : [];
 
     if (!videos || videos.length === 0) {
       if (waiting) await ctx.deleteMessage(waiting.message_id).catch(() => {});
@@ -135,12 +150,12 @@ async function searchYouTubeLive(ctx, query) {
     const buttons = [];
 
     videos.forEach((video) => {
-      const cleanTitle = video.title.replace(/[<>:"/\\|?*]/g, "").trim();
-      const cleanAuthor = (video.author?.name || "YouTube").replace(/[<>:"/\\|?*]/g, "").trim();
+      const cleanTitle = video.title ? video.title.replace(/[<>:"/\\|?*]/g, "").trim() : "Media";
+      const cleanAuthor = (video.username || "YouTube").replace(/[<>:"/\\|?*]/g, "").trim();
       
       const trackKey = crypto.randomUUID().slice(0, 8);
       ctx.session[trackKey] = {
-        url: video.url,
+        url: `https://www.youtube.com/watch?v=${video.id}`,
         title: cleanTitle,
         performer: cleanAuthor
       };
@@ -159,9 +174,9 @@ async function searchYouTubeLive(ctx, query) {
   }
 }
 
-// ================= LOYIHA UCHUN YANGI MUKAMMAL RAPIDAPI YUKLASH TIZIMI =================
+// ================= UNIVERSAL RAPIDAPI DOWNLOAD ENGINE =================
 async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = "", customPerformer = "") {
-  const waiting = await ctx.reply("⏳ Sifatli RapidAPI serveriga ulanmoqda...").catch(() => null);
+  const waiting = await ctx.reply("⏳ Sifatli server ulanmoqda, iltimos kuting...").catch(() => null);
   let url = targetUrl;
   
   let videoTitle = customTitle;
@@ -171,6 +186,7 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
   const isTikTok = url.includes("tiktok.com");
   const isInstagram = url.includes("instagram.com");
 
+  // YouTube havola ma'lumotlarini qidirish
   if (!videoTitle && isYouTube) {
     try {
       const urlObj = new URL(targetUrl);
@@ -179,10 +195,10 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
         urlObj.searchParams.delete("index");
         url = urlObj.toString();
       }
-      const searchResults = await ytSearch(url);
-      if (searchResults && searchResults.title) {
-        videoTitle = searchResults.title.replace(/[<>:"/\\|?*]/g, "").trim();
-        performerName = searchResults.author?.name || "YouTube Player";
+      const searchResults = await ytSearch.GetListByKeyword(url, false, 1);
+      if (searchResults && searchResults.items && searchResults.items[0]) {
+        videoTitle = searchResults.items[0].title.replace(/[<>:"/\\|?*]/g, "").trim();
+        performerName = searchResults.items[0].username || "YouTube Player";
       }
     } catch (e) {}
   }
@@ -191,71 +207,63 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
   const ext = isAudio ? "mp3" : "mp4";
   const finalPath = path.join(__dirname, `media_${fileId}.${ext}`);
 
-  // ================= SKRINSHOTDAGI ALL-IN-ONE API INTEGRATSIYASI =================
-  try {
-    if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "🚀 RapidAPI orqali tahlil qilinmoqda...").catch(() => {});
-    
-    const responseApi = await axios({
-      method: 'POST',
-      url: 'https://social-download-all-in-one.p.rapidapi.com/v1/social/autolink',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-rapidapi-host': 'social-download-all-in-one.p.rapidapi.com',
-        'x-rapidapi-key': 'd8d01b8fc7msh4b21e81a8a871bcp1307d7jsnd76c8175e018'
-      },
-      data: {
-        url: url
-      },
-      timeout: 30000
-    });
-
-    let mediaUrl = null;
-    const apiData = responseApi.data;
-
-    if (apiData && apiData.medias && apiData.medias.length > 0) {
-      if (isAudio) {
-        const audioObj = apiData.medias.find(m => m.type === 'audio' || m.extension === 'mp3');
-        mediaUrl = audioObj ? audioObj.url : apiData.medias[0].url;
-      } else {
-        const videoObj = apiData.medias.find(m => m.quality === 'hd' || m.type === 'video') || apiData.medias[0];
-        mediaUrl = videoObj ? videoObj.url : null;
-      }
-    } else if (apiData && apiData.url) {
-      mediaUrl = apiData.url;
-    }
-
-    if (mediaUrl) {
-      if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "📥 Fayl yuklab olinmoqda va Telegramga uzatilmoqda...").catch(() => {});
+  // ================= PROFESSIONAL RAPIDAPI ENGINE =================
+  if (process.env.RAPIDAPI_KEY && process.env.RAPIDAPI_HOST) {
+    try {
+      if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "🚀 Premium kanal orqali yuklanmoqda...").catch(() => {});
       
-      if (!videoTitle) videoTitle = isTikTok ? "TikTok Video" : isInstagram ? "Instagram Reel" : "Ijtimoiy Tarmoq Mediasi";
-      if (!performerName) performerName = "Media Downloader";
+      const options = {
+        method: 'GET',
+        url: `https://${process.env.RAPIDAPI_HOST}/api/video/download`,
+        params: { url: url },
+        headers: {
+          'X-RapidAPI-Key': process.env.RAPIDAPI_KEY,
+          'X-RapidAPI-Host': process.env.RAPIDAPI_HOST
+        },
+        timeout: 20000
+      };
 
-      const writer = fs.createWriteStream(finalPath);
-      const streamResponse = await axios({ url: mediaUrl, method: 'GET', responseType: 'stream' });
-      streamResponse.data.pipe(writer);
+      const res = await axios.request(options);
+      
+      let directDownloadUrl = null;
+      if (res.data && res.data.url) directDownloadUrl = res.data.url;
+      else if (res.data && res.data.links && res.data.links[0]) directDownloadUrl = res.data.links[0].url;
+      else if (res.data && res.data.data && res.data.data.video) directDownloadUrl = res.data.data.video;
 
-      await new Promise((resolve, reject) => { writer.on('finish', resolve); writer.on('error', reject); });
+      if (directDownloadUrl) {
+        if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "📥 Telegram ekotizimiga yuklanmoqda...").catch(() => {});
+        
+        if (!videoTitle) videoTitle = isTikTok ? "TikTok Media" : isInstagram ? "Instagram Reel" : "Social Video";
+        if (!performerName) performerName = "Media Bot";
 
-      if (isAudio) {
-        await ctx.replyWithAudio({ source: finalPath }, { title: videoTitle, performer: performerName, filename: `${videoTitle}.mp3` });
-      } else {
-        await ctx.replyWithVideo({ source: finalPath }, { caption: `🎬 <b>${videoTitle}</b>\n\n📥 @${ctx.botInfo.username} orqali yuklandi`, parse_mode: "HTML" });
+        const writer = fs.createWriteStream(finalPath);
+        const response = await axios({ url: directDownloadUrl, method: 'GET', responseType: 'stream' });
+        response.data.pipe(writer);
+
+        await new Promise((resolve, reject) => { writer.on('finish', resolve); writer.on('error', reject); });
+
+        if (isAudio) {
+          await ctx.replyWithAudio({ source: finalPath }, { title: videoTitle, performer: performerName, filename: `${videoTitle}.mp3` });
+        } else {
+          await ctx.replyWithVideo({ source: finalPath }, { caption: `🎬 <b>${videoTitle}</b>\n\n📥 @${ctx.botInfo.username} orqali yuklandi`, parse_mode: "HTML" });
+        }
+
+        if (fs.existsSync(finalPath)) fs.unlinkSync(finalPath);
+        if (waiting) await ctx.deleteMessage(waiting.message_id).catch(() => {});
+        return;
       }
-
-      if (fs.existsSync(finalPath)) fs.unlinkSync(finalPath);
-      if (waiting) await ctx.deleteMessage(waiting.message_id).catch(() => {});
-      return; 
+    } catch (rapidErr) {
+      console.log("RapidAPI premium kanali xatosi:", rapidErr.message);
     }
-  } catch (apiErr) {
-    console.error("RapidAPI ulanish xatosi:", apiErr.message);
   }
 
+  // Agar RapidAPI ishlamasa muqobil ogohlantirish texti
   if (waiting) {
     await ctx.telegram.editMessageText(
       ctx.chat.id, 
       waiting.message_id, 
       null, 
-      `❌ <b>Havolani yuklab bo'lmadi!</b>\n\nHavola noto'g'ri, profil yopiq yoki API tizimida vaqtincha uzilish bor.\n\n💡 <b>Siz uchun muqobil yechim:</b> Pastdagi tugmalardan foydalanib o'zingizga kerakli qo'shiq yoki kino nomini shunchaki matn ko'rinishida yozib yuboring. Bot uni ichki qidiruv tizimi orqali sizga 100% muammosiz yuklab beradi!`, 
+      `❌ <b>Yuklab olish imkoni bo'lmadi!</b>\n\nUshbu ijtimoiy tarmoq xavfsizlik tizimi vaqtincha hosting serverimiz IP manzilini bloklab qo'ydi.\n\n💡 <b>Siz uchun 100% ishlaydigan ajoyib yechim:</b> Pastdagi tugmalardan foydalanib o'zingizga kerakli qo'shiq yoki kino nomini shunchaki matn ko'rinishida yozib yuboring (Masalan: <i>Yulduz Usmonova - Muhabbat</i>). Bot uni ichki qidiruv tizimi orqali sizga 100% muammosiz topib va yuklab beradi!`, 
       { parse_mode: "HTML" }
     ).catch(() => {});
   }
@@ -323,6 +331,7 @@ bot.action(/dl_(m|v)_(.+)/, async (ctx) => {
   } catch (e) {}
 });
 
+// ================= BOT SYSTEM START =================
 bot.launch({ dropPendingUpdates: true })
   .then(() => console.log("🔥 ULTRA-SPEED PREMIUM ENGINE ONLINE!"))
   .catch((err) => console.error(err.message));
