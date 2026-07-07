@@ -85,7 +85,7 @@ bot.hears("📊 Statistika", async (ctx) => {
     const count = users.length;
     if (count === 0) {
       if (waiting) await ctx.deleteMessage(waiting.message_id).catch(() => {});
-      return ctx.reply("📊 <b>Bot statistikasi:</b>\n\nHozircha obunachilar mavjud emas.", { parse_mode: "HTML" });
+      return ctx.reply("📊 <b>Bot statistikasi:</b>\n\nHozircha obunachilar macrosi mavjud emas.", { parse_mode: "HTML" });
     }
     let report = `📊 <b>BOT STATISTIKASI</b>\n👥 Jami obunachilar: <b>${count} ta</b>\n\n📋 <b>Foydalanuvchilar ro'yxati:</b>\n`;
     users.forEach((user, index) => {
@@ -180,49 +180,6 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
   const isTikTok = url.includes("tiktok.com");
   const isInstagram = url.includes("instagram.com");
 
-  // ================= 1. INSTAGRAM UCHUN DIRECT MULTI-API TIZIMI =================
-  if (isInstagram) {
-    const instaAPIs = [
-      `https://api.sandros.xyz/instagram?url=${encodeURIComponent(url)}`,
-      `https://scraptik.p.rapidapi.com/instagram-downloader?url=${encodeURIComponent(url)}` // Qo'shimcha ochiq oqimlar
-    ];
-
-    for (const api of instaAPIs) {
-      try {
-        if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "⚡️ Instagram xavfsiz kanaldan yuklanmoqda...").catch(() => {});
-        const res = await axios.get(api, { timeout: 12000 });
-
-        // Agar muvaffaqiyatli url kelsa, yuklab yuborish
-        let directUrl = res.data?.url || res.data?.links?.[0]?.url || res.data?.data?.video_url;
-        
-        if (directUrl) {
-          const fileId = crypto.randomUUID().slice(0, 8);
-          const ext = isAudio ? "mp3" : "mp4";
-          const finalPath = path.join(__dirname, `media_${fileId}.${ext}`);
-
-          const writer = fs.createWriteStream(finalPath);
-          const response = await axios({ url: directUrl, method: 'GET', responseType: 'stream' });
-          response.data.pipe(writer);
-
-          await new Promise((resolve, reject) => { writer.on('finish', resolve); writer.on('error', reject); });
-
-          if (isAudio) {
-            await ctx.replyWithAudio({ source: finalPath }, { title: "Instagram Audio", performer: "Instagram", filename: `insta_${fileId}.mp3` });
-          } else {
-            await ctx.replyWithVideo({ source: finalPath }, { caption: `🎬 <b>Instagram Media</b>\n\n📥 @${ctx.botInfo.username} orqali yuklandi`, parse_mode: "HTML" });
-          }
-
-          if (fs.existsSync(finalPath)) fs.unlinkSync(finalPath);
-          if (waiting) await ctx.deleteMessage(waiting.message_id).catch(() => {});
-          return; // Ish tugadi
-        }
-      } catch (e) {
-        console.log("Instagram API xatosi, navbatdagisiga o'tilmoqda...");
-      }
-    }
-  }
-  // =======================================================================
-
   if (!videoTitle && isYouTube) {
     try {
       const urlObj = new URL(targetUrl);
@@ -244,7 +201,7 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
   const finalPath = path.join(__dirname, `media_${fileId}.${ext}`);
   let successDownload = false;
 
-  // 2. UNIVERSAL COBALT TIZIMI (YouTube & TikTok)
+  // 1. COBALT API TIZIMI (YouTube va TikTok uchun tezkor yuklash)
   if (!isInstagram) {
     const cobaltMirrors = [
       "https://api.cobalt.tools/api/json",
@@ -292,15 +249,18 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
     }
   }
 
-  // 3. DOIMIY YT-DLP CORE TIZIMI (Muammoli barcha linklar uchun yakuniy zaxira)
+  // 2. KUCHAYTIRILGAN YT-DLP CORE TIZIMI (User-Agent bilan himoyalangan)
   if (!successDownload) {
     try {
       if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "⚡️ Kuchaytirilgan tizim yuklamoqda...").catch(() => {});
       const outputTemplate = path.join(__dirname, `media_${fileId}.%(ext)s`);
+      
+      // Instagram bloklamasligi uchun so'rovni brauzer ko'rinishida yuboramiz
+      const userAgentParam = `--user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"`;
 
       let command = isAudio 
-        ? `yt-dlp --no-playlist --no-check-certificates --no-warnings -x --audio-format mp3 -o "${outputTemplate}" "${url}"`
-        : `yt-dlp --no-playlist --no-check-certificates --no-warnings -f "b[ext=mp4]/bv*+ba/b" -o "${outputTemplate}" "${url}"`;
+        ? `yt-dlp ${userAgentParam} --no-playlist --no-check-certificates --no-warnings -x --audio-format mp3 -o "${outputTemplate}" "${url}"`
+        : `yt-dlp ${userAgentParam} --no-playlist --no-check-certificates --no-warnings -f "b[ext=mp4]/bv*+ba/b" -o "${outputTemplate}" "${url}"`;
 
       await runLocalDl(command);
       const files = fs.readdirSync(__dirname);
@@ -310,7 +270,7 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
         const localPath = path.join(__dirname, downloadedFile);
         
         if (!videoTitle) videoTitle = isTikTok ? "TikTok Media" : isInstagram ? "Instagram Media" : "Musiqa";
-        if (!performerName) performerName = "Media Downloader";
+        if (!performerName) performerName = isInstagram ? "Instagram" : "Media Downloader";
 
         if (isAudio) {
           await ctx.replyWithAudio({ source: localPath }, { title: videoTitle, performer: performerName, filename: `${videoTitle}.mp3` });
@@ -326,7 +286,7 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
     }
   }
 
-  if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "❌ Afsuski, ushbu havolani yuklab bo'lmadi. Profil yopiq yoki havola eskirgan.").catch(() => {});
+  if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "❌ Afsuski, ushbu havolani yuklab bo'lmadi. Profil yopiq yoki havola xato.").catch(() => {});
 }
 
 // ================= SMART CONTROLLER =================
@@ -351,8 +311,18 @@ bot.on("message", async (ctx) => {
   if (text === "🎬 Kino (Treyler) qidirish" || text === "🎵 Musiqa qidirish" || text === "📊 Statistika" || text === "📢 Xabar yuborish" || text === "⬅️ Bosh menyu") return;
 
   if (/https?:\/\//.test(text)) {
+    let cleanUrl = text;
+    
+    // Instagram havolasidagi ortiqcha App Link tokenlarni (?igsh=...) tozalaymiz
+    if (cleanUrl.includes("instagram.com")) {
+      try {
+        const urlObj = new URL(cleanUrl);
+        cleanUrl = urlObj.origin + urlObj.pathname;
+      } catch (e) {}
+    }
+
     const shortKey = crypto.randomUUID().slice(0, 8);
-    ctx.session[shortKey] = text;
+    ctx.session[shortKey] = cleanUrl;
     
     return ctx.reply("📥 Havola aniqlandi. Formatni tanlang:", Markup.inlineKeyboard([
       [Markup.button.callback("🎥 Video (MP4)", `fmt_v_${shortKey}`), Markup.button.callback("🎵 Audio (MP3)", `fmt_m_${shortKey}`)]
