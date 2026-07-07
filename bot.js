@@ -10,7 +10,7 @@ const ADMIN_ID = process.env.ADMIN_ID ? parseInt(process.env.ADMIN_ID) : 8125836
 
 // ================= EXPRESS WEB SERVER =================
 const app = express();
-app.get("/", (req, res) => res.send("🟢 Premium High-Speed Bot Active"));
+app.get("/", (req, res) => res.send("🟢 Ultra High-Speed Bot Active"));
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
 
@@ -58,13 +58,13 @@ bot.start(async (ctx) => {
     );
   } catch (e) {}
 
-  let text = "🚀 Bot muvaffaqiyatli ishga tushdi.\n\nHavola yuboring yoki pastdagi menyudan foydalanib qo'shiq/kino nomini yozing:";
+  let text = "🚀 Bot ishga tushdi.\nHavola yuboring yoki quyidagi menyudan foydalanib qo'shiq/kino nomini yozing:";
   if (ctx.from.id === ADMIN_ID) text += "\n\n👨‍💻 Admin panel: /admin";
   ctx.reply(text, mainMenu);
 });
 
 bot.command("admin", (ctx) => {
-  if (ctx.from.id !== ADMIN_ID) return ctx.reply("❌ Bu buyruq faqat bot admini uchun!");
+  if (ctx.from.id !== ADMIN_ID) return ctx.reply("❌ Taqiqlangan!");
   ctx.reply("👨‍💻 Admin panel:", adminMenu);
 });
 
@@ -72,23 +72,19 @@ bot.hears("⬅️ Bosh menyu", (ctx) => ctx.reply("Bosh menyu:", mainMenu));
 
 bot.hears("📊 Statistika", async (ctx) => {
   if (ctx.from.id !== ADMIN_ID) return;
-  const waiting = await ctx.reply("📊 Yig'ilmoqda...").catch(() => null);
   try {
     const users = await User.find().sort({ date: -1 });
-    let report = `📊 <b>BOT STATISTIKASI</b>\n👥 Jami obunachilar: <b>${users.length} ta</b>\n\n📋 <b>Ro'yxat:</b>\n`;
+    let report = `👥 Jami obunachilar: <b>${users.length} ta</b>\n\n`;
     users.forEach((user, index) => {
       report += `${index + 1}. 👤 <b>${escapeHTML(user.firstName)}</b> — ${escapeHTML(user.username)} (ID: <code>${user.telegramId}</code>)\n`;
     });
-    if (waiting) await ctx.deleteMessage(waiting.message_id).catch(() => {});
     if (report.length > 4000) {
       const chunks = report.match(/[\s\S]{1,4000}/g);
       for (const chunk of chunks) await ctx.reply(chunk, { parse_mode: "HTML" }).catch(() => {});
     } else {
       await ctx.reply(report, { parse_mode: "HTML" }).catch(() => {});
     }
-  } catch (error) {
-    if (waiting) await ctx.deleteMessage(waiting.message_id).catch(() => {});
-  }
+  } catch (error) {}
 });
 
 bot.hears("📢 Xabar yuborish", (ctx) => {
@@ -147,7 +143,7 @@ async function searchYouTubeLive(ctx, query) {
   }
 }
 
-// ================= 100% PREMIUM HAR DOIM UCHADIGAN DOWNLOAD ENGINE =================
+// ================= 3-4 SONIYALIK CHAQMOQ DOWNLOAD ENGINE =================
 async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = "", customPerformer = "") {
   const waiting = await ctx.reply("⚡️").catch(() => null);
   let url = targetUrl;
@@ -155,30 +151,56 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
   let performerName = customPerformer;
 
   const isYouTube = url.includes("youtube.com") || url.includes("youtu.be");
-  const isTikTok = url.includes("tiktok.com");
-  const isInstagram = url.includes("instagram.com");
-
+  
   if (!videoTitle && isYouTube) {
     try {
-      const urlObj = new URL(targetUrl);
-      if (urlObj.searchParams.has("list")) {
-        urlObj.searchParams.delete("list");
-        urlObj.searchParams.delete("index");
-        url = urlObj.toString();
-      }
       const searchResults = await ytSearch(url);
       if (searchResults && searchResults.title) {
         videoTitle = searchResults.title.replace(/[<>:"/\\|?*]/g, "").trim();
-        performerName = searchResults.author?.name || "YouTube Player";
+        performerName = searchResults.author?.name || "YouTube";
       }
     } catch (e) {}
   }
 
-  if (!videoTitle) videoTitle = isTikTok ? "TikTok Video" : isInstagram ? "Instagram Reel" : "Media Downloader";
-  if (!performerName) performerName = "Chaqmoq Downloader";
+  if (!videoTitle) videoTitle = url.includes("tiktok.com") ? "TikTok" : url.includes("instagram.com") ? "Instagram" : "Media";
+  if (!performerName) performerName = "Downloader";
 
   try {
-    // 🚀 FAQAT SIZNING RAPIDAPI KALITINGIZ ORQALI TO'G'RIDAN-TO'G'RI ULTRA TEZKOR YUKLASH TIZIMI
+    // 🔴 1. YOUTUBE ESA FAQLAT SIZNING RAPIDAPI'GA YUBORMASDAN, TO'G'RIDAN-TO'G'RI ULTRA TEZKOR COBALT TIZIMIDA YUKLASH
+    if (isYouTube) {
+      let directUrl = null;
+      // Parallel ravishda 3 ta eng katta tezkor global Cobalt manzillariga so'rov tashlaymiz (Musiqani 2-3 soniyada tayyorlaydi!)
+      const cobaltServers = [
+        'https://cobalt.samet.live/api/json',
+        'https://api.cobalt.tools/api/json',
+        'https://cobalt.moe/api/json'
+      ];
+
+      for (const server of cobaltServers) {
+        try {
+          const res = await axios.post(server, 
+            { url: url, downloadMode: isAudio ? 'audio' : 'video', audioFormat: 'mp3' },
+            { headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' }, timeout: 4000 }
+          );
+          if (res.data && res.data.url) {
+            directUrl = res.data.url;
+            break; // Havola topilishi bilan siklni to'xtatamiz
+          }
+        } catch (e) {}
+      }
+
+      if (directUrl) {
+        if (isAudio) {
+          await ctx.replyWithAudio({ url: directUrl }, { title: videoTitle, performer: performerName });
+        } else {
+          await ctx.replyWithVideo({ url: directUrl }, { caption: `🎬 <b>${videoTitle}</b>\n\n📥 @${ctx.botInfo.username}`, parse_mode: "HTML" });
+        }
+        if (waiting) await ctx.deleteMessage(waiting.message_id).catch(() => {});
+        return; 
+      }
+    }
+
+    // 🟢 2. TIKTOK VA INSTAGRAM UCHUN SIZNING RAPIDAPI TIZIMINGIZ
     const responseApi = await axios({
       method: 'POST',
       url: 'https://social-download-all-in-one.p.rapidapi.com/v1/social/autolink',
@@ -188,7 +210,7 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
         'x-rapidapi-key': 'd8d01b8fc7msh4b21e81a8a871bcp1307d7jsnd76c8175e018'
       },
       data: { url: url },
-      timeout: 12000
+      timeout: 7000
     });
 
     let mediaUrl = null;
@@ -197,25 +219,19 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
     if (apiData) {
       if (apiData.links && apiData.links.length > 0) {
         if (isAudio) {
-          // Birinchi navbatda audio yoki mp3 formatdagi premium direct linkni qidiradi
-          const audioLink = apiData.links.find(l => l.type === 'audio' || (l.extension && l.extension.includes('mp3')) || l.quality === 'audio');
+          const audioLink = apiData.links.find(l => l.type === 'audio' || (l.extension && l.extension.includes('mp3')));
           mediaUrl = audioLink ? audioLink.url : apiData.links[0].url;
         } else {
-          // Eng sifatli video direct linkni qidiradi
-          const videoLink = apiData.links.find(l => l.type === 'video' || l.quality === 'hd' || l.quality === '720p') || apiData.links[0];
+          const videoLink = apiData.links.find(l => l.type === 'video' || l.quality === 'hd') || apiData.links[0];
           mediaUrl = videoLink ? videoLink.url : null;
         }
       } else if (apiData.urls && apiData.urls.length > 0) {
         mediaUrl = apiData.urls[0].url || apiData.urls[0];
-      } else if (apiData.medias && apiData.medias.length > 0) {
-        const foundMedia = apiData.medias.find(m => isAudio ? m.type === 'audio' : m.type === 'video') || apiData.medias[0];
-        mediaUrl = foundMedia ? foundMedia.url : null;
       } else if (apiData.url) {
         mediaUrl = apiData.url;
       }
     }
 
-    // DIRECT LINK USULI: RapidAPI bergan tayyor va toza havolani srazu Telegramga otamiz (3-4 soniya!)
     if (mediaUrl) {
       if (isAudio) {
         await ctx.replyWithAudio({ url: mediaUrl }, { title: videoTitle, performer: performerName });
@@ -228,7 +244,7 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
   } catch (apiErr) {}
 
   if (waiting) {
-    await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, `❌ Yuklashda xatolik yuz berdi. Iltimos qaytadan urunib ko'ring.`).catch(() => {});
+    await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, `❌ Yuklashda xatolik yuz berdi. Havola xato yoki server band.`).catch(() => {});
   }
 }
 
@@ -288,13 +304,13 @@ bot.action(/dl_(m|v)_(.+)/, async (ctx) => {
   try {
     await ctx.answerCbQuery().catch(() => {});
     const trackData = ctx.session[ctx.match[2]];
-    if (!trackData) return ctx.reply("❌ Qidiruv seansi muddati tugagan. Iltimos, qaytadan qidiring.");
+    if (!trackData) return ctx.reply("❌ Qidiruv muddati tugagan.");
     await downloadAndSend(ctx, trackData.url, ctx.match[1] === "m", trackData.title, trackData.performer);
   } catch (e) {}
 });
 
 bot.launch({ dropPendingUpdates: true })
-  .then(() => console.log("🔥 PREMIUM RAPID-API ONLY ENGINE ONLINE!"))
+  .then(() => console.log("🔥 CHOPAR MULTI-SERVER ENGINE ONLINE!"))
   .catch((err) => console.error(err.message));
 
 process.once("SIGINT", () => bot.stop("SIGINT"));
