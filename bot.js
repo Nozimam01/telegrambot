@@ -107,7 +107,7 @@ bot.hears("🎬 Kino (Treyler) qidirish", (ctx) => {
   ctx.reply("🎬 Kino yoki treyler nomini yozing:");
 });
 
-// ================= OLDINIGI SIZGA YOQQAN QIDIRUV TIZIMI =================
+// ================= YOUTUBE SEARCH TIZIMI =================
 async function searchYouTubeLive(ctx, query) {
   const waiting = await ctx.reply("🔍 Qidirilmoqda...").catch(() => null);
   try {
@@ -147,9 +147,8 @@ async function searchYouTubeLive(ctx, query) {
   }
 }
 
-// ================= ULTRA-SPEED DIRECT-LINK DELIVERY ENGINE (3-4 SONIYALIK) =================
+// ================= PREMIUM HIGH-SPEED DOWNLOAD ENGINE (3-4 SONIYALIK) =================
 async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = "", customPerformer = "") {
-  // Matnlarni o'zgartirib vaqt yo'qotmaymiz, faqatgina chaqmoq belgisi
   const waiting = await ctx.reply("⚡️").catch(() => null);
   let url = targetUrl;
   let videoTitle = customTitle;
@@ -179,32 +178,42 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
   if (!performerName) performerName = "Chaqmoq Downloader";
 
   try {
-    // 1-Kanal: YouTube uchun tezkor tashqi ochiq API xizmatlari
+    // 🚀 1-Yo'nalish: YouTube audio/video uchun eng barqaror va tezkor parallel API tarmoqlari
     if (isYouTube) {
       let directUrl = null;
+      
+      // A-Kanal: Birinchi va eng tezkor premium tarmoq (Musiqalarni 2-3 soniyada tayyorlaydi)
       try {
-        if (isAudio) {
-          const cobaltRes = await axios.post('https://api.cobalt.tools/api/json', { url: url, downloadMode: 'audio' }, { headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' }, timeout: 5000 });
-          if (cobaltRes.data && cobaltRes.data.url) directUrl = cobaltRes.data.url;
-        } else {
-          const sandrosRes = await axios.get(`https://api.sandros.xyz/download?url=${encodeURIComponent(url)}`, { timeout: 5000 });
-          if (sandrosRes.data && sandrosRes.data.url) directUrl = sandrosRes.data.url;
+        const primaryRes = await axios.get(`https://api.vreden.web.id/api/ytdl?url=${encodeURIComponent(url)}`, { timeout: 6000 });
+        if (primaryRes.data && primaryRes.data.status === 200) {
+          directUrl = isAudio ? primaryRes.data.result.audio : primaryRes.data.result.video;
         }
       } catch (e) {}
 
-      // CHOPAR USUL: Faylni serverga ko'chirmay, Telegramga link orqali topshirish (3 soniya!)
+      // B-Kanal: Zaxiradagi muqobil yuqori tezlikdagi server
+      if (!directUrl) {
+        try {
+          const cobaltRes = await axios.post('https://api.cobalt.tools/api/json', 
+            { url: url, downloadMode: isAudio ? 'audio' : 'video', audioFormat: 'mp3', videoQuality: '720' }, 
+            { headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' }, timeout: 6000 }
+          );
+          if (cobaltRes.data && cobaltRes.data.url) directUrl = cobaltRes.data.url;
+        } catch (e) {}
+      }
+
+      // CHOPAR USUL: Agar direct link olingan bo'lsa, uni server xotirasiga yozmasdan srazu Telegramga otamiz
       if (directUrl) {
         if (isAudio) {
           await ctx.replyWithAudio({ url: directUrl }, { title: videoTitle, performer: performerName });
         } else {
-          await ctx.replyWithVideo({ url: directUrl }, { caption: `🎬 <b>${videoTitle}</b>\n\n📥 @${ctx.botInfo.username} orqali yuklandi`, parse_mode: "HTML" });
+          await ctx.replyWithVideo({ url: directUrl }, { caption: `🎬 <b>${videoTitle}</b>\n\n📥 @${ctx.botInfo.username}`, parse_mode: "HTML" });
         }
         if (waiting) await ctx.deleteMessage(waiting.message_id).catch(() => {});
         return; 
       }
     }
 
-    // 2-Kanal: TikTok va Instagram uchun Siz bergan RapidAPI tizimini direct linkka o'tkazish
+    // 🚀 2-Yo'nalish: TikTok va Instagram havolalari uchun Siz bergan RapidAPI tizimi
     const responseApi = await axios({
       method: 'POST',
       url: 'https://social-download-all-in-one.p.rapidapi.com/v1/social/autolink',
@@ -239,12 +248,12 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
       }
     }
 
-    // CHOPAR USUL (DIRECT LINK): RapidAPI bergan tayyor linkni shundoq Telegramga uzatish (3-4 soniya!)
+    // CHOPAR USUL (DIRECT LINK): RapidAPI bergan tayyor linkni shundoq Telegramga uzatish
     if (mediaUrl) {
       if (isAudio) {
         await ctx.replyWithAudio({ url: mediaUrl }, { title: videoTitle, performer: performerName });
       } else {
-        await ctx.replyWithVideo({ url: mediaUrl }, { caption: `🎬 <b>${videoTitle}</b>\n\n📥 @${ctx.botInfo.username} orqali yuklandi`, parse_mode: "HTML" });
+        await ctx.replyWithVideo({ url: mediaUrl }, { caption: `🎬 <b>${videoTitle}</b>\n\n📥 @${ctx.botInfo.username}`, parse_mode: "HTML" });
       }
       if (waiting) await ctx.deleteMessage(waiting.message_id).catch(() => {});
       return; 
@@ -252,7 +261,7 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
   } catch (apiErr) {}
 
   if (waiting) {
-    await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, `❌ Yuklashda xatolik. Havola xato yoki profil maxfiy.`).catch(() => {});
+    await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, `❌ Yuklashda xatolik yuz berdi. Havola xato yoki server band.`).catch(() => {});
   }
 }
 
