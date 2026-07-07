@@ -180,39 +180,6 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
   const isTikTok = url.includes("tiktok.com");
   const isInstagram = url.includes("instagram.com");
 
-  // ================= 1. INSTAGRAM ENGINES =================
-  if (isInstagram) {
-    try {
-      if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "⚡️ Instagram kanali tahlil qilinmoqda...").catch(() => {});
-      const instaApiUrl = `https://api.sandros.xyz/instagram?url=${encodeURIComponent(url)}`;
-      const res = await axios.get(instaApiUrl, { timeout: 10000 });
-
-      if (res.data && res.data.url) {
-        const fileId = crypto.randomUUID().slice(0, 8);
-        const ext = isAudio ? "mp3" : "mp4";
-        const finalPath = path.join(__dirname, `media_${fileId}.${ext}`);
-
-        const writer = fs.createWriteStream(finalPath);
-        const response = await axios({ url: res.data.url, method: 'GET', responseType: 'stream' });
-        response.data.pipe(writer);
-
-        await new Promise((resolve, reject) => { writer.on('finish', resolve); writer.on('error', reject); });
-
-        if (isAudio) {
-          await ctx.replyWithAudio({ source: finalPath }, { title: "Instagram Audio", performer: "Instagram", filename: `insta_${fileId}.mp3` });
-        } else {
-          await ctx.replyWithVideo({ source: finalPath }, { caption: `🎬 <b>Instagram Media</b>\n\n📥 @${ctx.botInfo.username} orqali yuklandi`, parse_mode: "HTML" });
-        }
-
-        if (fs.existsSync(finalPath)) fs.unlinkSync(finalPath);
-        if (waiting) await ctx.deleteMessage(waiting.message_id).catch(() => {});
-        return;
-      }
-    } catch (apiErr) {
-      console.log("Instagram API muqobil kanali ishlamadi.");
-    }
-  }
-
   // YouTube sarlavhalarini tekshirish
   if (!videoTitle && isYouTube) {
     try {
@@ -235,67 +202,46 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
   const finalPath = path.join(__dirname, `media_${fileId}.${ext}`);
   let successDownload = false;
 
-  // ================= 2. YANGILANGAN COBALT API TIZIMI (YouTube va TikTok uchun) =================
-  if (!isInstagram) {
-    const cobaltMirrors = [
-      "https://api.cobalt.tools/api/json",
-      "https://cobalt.api.red.velvet.club/api/json",
-      "https://co.wuk.sh/api/json",
-      "https://api.co.wuk.sh/api/json"
-    ];
+  // ================= 1. YANGI UNIVERSAL ALL-IN-ONE API TIZIMI =================
+  // Bu API Cobalt'dan mustaqil, kuki talab qilmaydi, xatolarsiz va barqaror yuklaydi.
+  try {
+    if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "🚀 Tezkor server ulanmoqda...").catch(() => {});
+    
+    // Barcha tarmoqlar uchun ishlaydigan super muqobil API API
+    const apiServiceUrl = `https://api.sandros.xyz/download?url=${encodeURIComponent(url)}`;
+    const res = await axios.get(apiServiceUrl, { timeout: 15000 });
 
-    for (const mirror of cobaltMirrors) {
-      if (successDownload) break;
-      try {
-        if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "🚀 Tezkor server yuklamoqda...").catch(() => {});
-        
-        const res = await axios.post(mirror, {
-          url: url,
-          isAudioOnly: isAudio,
-          aFormat: "mp3",
-          vQuality: "720"
-        }, {
-          headers: { 
-            "Accept": "application/json", 
-            "Content-Type": "application/json",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-          },
-          timeout: 12000
-        });
+    if (res.data && res.data.url) {
+      if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "📥 Fayl Telegramga uzatilmoqda...").catch(() => {});
+      
+      if (!videoTitle) videoTitle = isTikTok ? "TikTok Video" : isInstagram ? "Instagram Media" : "Social Content";
+      if (!performerName) performerName = "Media Downloader";
 
-        if (res.data && res.data.url) {
-          if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "📥 Telegramga uzatilmoqda...").catch(() => {});
-          
-          if (!videoTitle) videoTitle = res.data.filename ? res.data.filename.replace(/\.[^/.]+$/, "").replace(/[<>:"/\\|?*]/g, "").trim() : "Social Video";
-          if (!performerName) performerName = isTikTok ? "TikTok" : "Media Bot";
+      const writer = fs.createWriteStream(finalPath);
+      const response = await axios({ url: res.data.url, method: 'GET', responseType: 'stream' });
+      response.data.pipe(writer);
 
-          const writer = fs.createWriteStream(finalPath);
-          const response = await axios({ url: res.data.url, method: 'GET', responseType: 'stream' });
-          response.data.pipe(writer);
+      await new Promise((resolve, reject) => { writer.on('finish', resolve); writer.on('error', reject); });
 
-          await new Promise((resolve, reject) => { writer.on('finish', resolve); writer.on('error', reject); });
-
-          if (isAudio) {
-            await ctx.replyWithAudio({ source: finalPath }, { title: videoTitle, performer: performerName, filename: `${videoTitle}.mp3` });
-          } else {
-            await ctx.replyWithVideo({ source: finalPath }, { caption: `🎬 <b>${videoTitle}</b>\n\n📥 @${ctx.botInfo.username} orqali yuklandi`, parse_mode: "HTML" });
-          }
-
-          if (fs.existsSync(finalPath)) fs.unlinkSync(finalPath);
-          successDownload = true;
-          if (waiting) await ctx.deleteMessage(waiting.message_id).catch(() => {});
-          return;
-        }
-      } catch (err) {
-        console.log(`Mirror xatosi (${mirror}):`, err.message);
+      if (isAudio) {
+        await ctx.replyWithAudio({ source: finalPath }, { title: videoTitle, performer: performerName, filename: `${videoTitle}.mp3` });
+      } else {
+        await ctx.replyWithVideo({ source: finalPath }, { caption: `🎬 <b>${videoTitle}</b>\n\n📥 @${ctx.botInfo.username} orqali yuklandi`, parse_mode: "HTML" });
       }
+
+      if (fs.existsSync(finalPath)) fs.unlinkSync(finalPath);
+      successDownload = true;
+      if (waiting) await ctx.deleteMessage(waiting.message_id).catch(() => {});
+      return;
     }
+  } catch (err) {
+    console.log("Asosiy yuklash kanali band yoki xato berdi, zaxiraga o'tilmoqda...");
   }
 
-  // ================= 3. ZAXIRA YT-DLP CORE TIZIMI =================
+  // ================= 2. ZAXIRA YT-DLP CORE TIZIMI =================
   if (!successDownload) {
     try {
-      if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "⚡️ Zaxira algoritmi tekshirilmoqda...").catch(() => {});
+      if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "⚡️ Zaxira algoritmi ishlamoqda...").catch(() => {});
       const outputTemplate = path.join(__dirname, `media_${fileId}.%(ext)s`);
       
       let command = isAudio 
@@ -322,16 +268,17 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
         return;
       }
     } catch (error) {
-      console.log("yt-dlp zaxira algoritmi to'liq bloklangan.");
+      console.log("yt-dlp zaxirasi ham xato berdi.");
     }
   }
 
+  // Agar server IP manzili global blokda bo'lsa, xunuk xatolik ko'rsatmaymiz
   if (waiting) {
     await ctx.telegram.editMessageText(
       ctx.chat.id, 
       waiting.message_id, 
       null, 
-      `❌ <b>Yuklab bo'lmadi!</b>\n\nIjtimoiy tarmoq xavfsizlik tizimi hostingimiz IP manzilini vaqtincha bot tekshiruvi (Captha) tufayli blokladi.\n\n💡 <b>Yechim:</b> Pastdagi tugmalardan foydalanib qo'shiq yoki kino nomini matn ko'rinishida yozib yuboring, bot ichki qidiruv orqali uni 100% yuklab beradi!`, 
+      `❌ <b>Havolani yuklab bo'lmadi!</b>\n\nIjtimoiy tarmoq xavfsizlik tizimi vaqtincha bot tekshiruvi (Captcha) qo'ygani sababli havolani yuklab bo'lmadi.\n\n💡 <b>Siz uchun oson yechim:</b> Pastdagi tugmalardan foydalanib qo'shiq yoki kino nomini shunchaki matn ko'rinishida yozib yuboring (masalan: <i>Sevinch Mo'minova - Ne bo'ldi</i>). Bot qidiruv tizimi orqali uni sizga 100% yuklab beradi!`, 
       { parse_mode: "HTML" }
     ).catch(() => {});
   }
