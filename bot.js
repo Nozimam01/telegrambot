@@ -143,7 +143,7 @@ async function searchYouTubeLive(ctx, query) {
   }
 }
 
-// ================= 3-4 SONIYALIK CHAQMOQ DOWNLOAD ENGINE =================
+// ================= SMART H.264 MP4 DOWNLOAD ENGINE =================
 async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = "", customPerformer = "") {
   const waiting = await ctx.reply("⚡️").catch(() => null);
   let url = targetUrl;
@@ -162,86 +162,77 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
     } catch (e) {}
   }
 
-  if (!videoTitle) videoTitle = url.includes("tiktok.com") ? "TikTok" : url.includes("instagram.com") ? "Instagram" : "Media";
+  if (!videoTitle) videoTitle = url.includes("tiktok.com") ? "TikTok Video" : url.includes("instagram.com") ? "Instagram Reel" : "Media Fayl";
   if (!performerName) performerName = "Downloader";
 
   try {
-    // 🔴 1. YOUTUBE ESA FAQLAT SIZNING RAPIDAPI'GA YUBORMASDAN, TO'G'RIDAN-TO'G'RI ULTRA TEZKOR COBALT TIZIMIDA YUKLASH
-    if (isYouTube) {
-      let directUrl = null;
-      // Parallel ravishda 3 ta eng katta tezkor global Cobalt manzillariga so'rov tashlaymiz (Musiqani 2-3 soniyada tayyorlaydi!)
-      const cobaltServers = [
-        'https://cobalt.samet.live/api/json',
-        'https://api.cobalt.tools/api/json',
-        'https://cobalt.moe/api/json'
-      ];
+    let directUrl = null;
 
-      for (const server of cobaltServers) {
-        try {
-          const res = await axios.post(server, 
-            { url: url, downloadMode: isAudio ? 'audio' : 'video', audioFormat: 'mp3' },
-            { headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' }, timeout: 4000 }
-          );
-          if (res.data && res.data.url) {
-            directUrl = res.data.url;
-            break; // Havola topilishi bilan siklni to'xtatamiz
+    // 🚀 COBALT SERVERLARIGA SPRECIALLASHGAN PAROMETRLAR BERAMIZ (H.264 Standart format majburiy qilinadi)
+    const cobaltServers = [
+      'https://api.cobalt.tools/api/json',
+      'https://cobalt.samet.live/api/json',
+      'https://cobalt.moe/api/json',
+      'https://co.wuk.sh/api/json'
+    ];
+
+    for (const server of cobaltServers) {
+      try {
+        const res = await axios.post(server, 
+          { 
+            url: url, 
+            downloadMode: isAudio ? 'audio' : 'video', 
+            audioFormat: 'mp3',
+            videoQuality: '720', // Telegram eng yaxshi ko'radigan o'lcham
+            vCodec: 'h264'       // ⚡️ ENG MUHIMI: Qora ekranni yo'qotuvchi standart format majburlanadi!
+          },
+          { headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' }, timeout: 5000 }
+        );
+        if (res.data && res.data.url) {
+          directUrl = res.data.url;
+          break;
+        }
+      } catch (e) {}
+    }
+
+    // 🔄 COBALTDA BO'LMASA ZAXIRA RAPIDAPI (Bu yerda ham mp4 format olinadi)
+    if (!directUrl) {
+      try {
+        const responseApi = await axios({
+          method: 'POST',
+          url: 'https://social-download-all-in-one.p.rapidapi.com/v1/social/autolink',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-rapidapi-host': 'social-download-all-in-one.p.rapidapi.com',
+            'x-rapidapi-key': 'd8d01b8fc7msh4b21e81a8a871bcp1307d7jsnd76c8175e018'
+          },
+          data: { url: url },
+          timeout: 6000
+        });
+
+        const apiData = responseApi.data;
+        if (apiData) {
+          if (apiData.links && apiData.links.length > 0) {
+            const linkObj = isAudio ? apiData.links.find(l => l.type === 'audio') : apiData.links.find(l => (l.type === 'video' || l.quality === 'hd') && !l.url.includes('.m3u8'));
+            directUrl = linkObj ? linkObj.url : apiData.links[0].url;
+          } else if (apiData.url) {
+            directUrl = apiData.url;
           }
-        } catch (e) {}
-      }
-
-      if (directUrl) {
-        if (isAudio) {
-          await ctx.replyWithAudio({ url: directUrl }, { title: videoTitle, performer: performerName });
-        } else {
-          await ctx.replyWithVideo({ url: directUrl }, { caption: `🎬 <b>${videoTitle}</b>\n\n📥 @${ctx.botInfo.username}`, parse_mode: "HTML" });
         }
-        if (waiting) await ctx.deleteMessage(waiting.message_id).catch(() => {});
-        return; 
-      }
+      } catch (apiErr) {}
     }
 
-    // 🟢 2. TIKTOK VA INSTAGRAM UCHUN SIZNING RAPIDAPI TIZIMINGIZ
-    const responseApi = await axios({
-      method: 'POST',
-      url: 'https://social-download-all-in-one.p.rapidapi.com/v1/social/autolink',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-rapidapi-host': 'social-download-all-in-one.p.rapidapi.com',
-        'x-rapidapi-key': 'd8d01b8fc7msh4b21e81a8a871bcp1307d7jsnd76c8175e018'
-      },
-      data: { url: url },
-      timeout: 7000
-    });
-
-    let mediaUrl = null;
-    const apiData = responseApi.data;
-
-    if (apiData) {
-      if (apiData.links && apiData.links.length > 0) {
-        if (isAudio) {
-          const audioLink = apiData.links.find(l => l.type === 'audio' || (l.extension && l.extension.includes('mp3')));
-          mediaUrl = audioLink ? audioLink.url : apiData.links[0].url;
-        } else {
-          const videoLink = apiData.links.find(l => l.type === 'video' || l.quality === 'hd') || apiData.links[0];
-          mediaUrl = videoLink ? videoLink.url : null;
-        }
-      } else if (apiData.urls && apiData.urls.length > 0) {
-        mediaUrl = apiData.urls[0].url || apiData.urls[0];
-      } else if (apiData.url) {
-        mediaUrl = apiData.url;
-      }
-    }
-
-    if (mediaUrl) {
+    // TELEGRAMGA YUBORISH (Endi H.264 codec bilan video tiniq va muammosiz chiqadi)
+    if (directUrl) {
       if (isAudio) {
-        await ctx.replyWithAudio({ url: mediaUrl }, { title: videoTitle, performer: performerName });
+        await ctx.replyWithAudio({ url: directUrl }, { title: videoTitle, performer: performerName });
       } else {
-        await ctx.replyWithVideo({ url: mediaUrl }, { caption: `🎬 <b>${videoTitle}</b>\n\n📥 @${ctx.botInfo.username}`, parse_mode: "HTML" });
+        await ctx.replyWithVideo({ url: directUrl }, { caption: `🎬 <b>${videoTitle}</b>\n\n📥 @${ctx.botInfo.username}`, parse_mode: "HTML" });
       }
       if (waiting) await ctx.deleteMessage(waiting.message_id).catch(() => {});
       return; 
     }
-  } catch (apiErr) {}
+  } catch (err) {}
 
   if (waiting) {
     await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, `❌ Yuklashda xatolik yuz berdi. Havola xato yoki server band.`).catch(() => {});
@@ -310,7 +301,7 @@ bot.action(/dl_(m|v)_(.+)/, async (ctx) => {
 });
 
 bot.launch({ dropPendingUpdates: true })
-  .then(() => console.log("🔥 CHOPAR MULTI-SERVER ENGINE ONLINE!"))
+  .then(() => console.log("🔥 H.264 FIXED CHOPAR ENGINE ONLINE!"))
   .catch((err) => console.error(err.message));
 
 process.once("SIGINT", () => bot.stop("SIGINT"));
