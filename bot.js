@@ -143,7 +143,7 @@ async function searchYouTubeLive(ctx, query) {
   }
 }
 
-// ================= MULTI-SOURCE HIGH COMPATIBILITY DOWNLOAD ENGINE =================
+// ================= NO-BLACK-SCREEN DOWNLOAD ENGINE =================
 async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = "", customPerformer = "") {
   const waiting = await ctx.reply("⚡️").catch(() => null);
   let url = targetUrl;
@@ -169,7 +169,7 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
   try {
     let directUrl = null;
 
-    // 🔥 1-QADAM: INSTAGRAM UCHUN ENG SIFATLI VA STANDARD FORMAT (H.264 MP4) BERUVCHI YANGI PREMIUM API XIZMATI
+    // 🚀 1-MANBA: INSTAGRAM UCHUN ENG TEZKOR DIRECT VIDEO LINK (MP4 H264)
     if (isInstagram) {
       try {
         const instaRes = await axios.get(`https://api.ahmedali.tech/download?url=${encodeURIComponent(url)}`, { timeout: 5000 });
@@ -179,7 +179,7 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
       } catch (e) {}
     }
 
-    // 🚀 2-QADAM: AGAR BIRINCHI API O'XSHAMASA YOKI YOUTUBE BO'LSA - GLOBAL YT-DLP / COBALT POOL ISHLAYDI
+    // 🚀 2-MANBA: GLOBAL COBALT & YT-DLP SERVERS POOL
     if (!directUrl) {
       const apiPool = [
         'https://api.cobalt.tools/api/json',
@@ -195,7 +195,7 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
               downloadMode: isAudio ? 'audio' : 'video', 
               audioFormat: 'mp3',
               videoQuality: '720',
-              vCodec: 'h264' // Qora ekranni majburiy yo'qotish
+              vCodec: 'h264'
             },
             { headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' }, timeout: 5000 }
           );
@@ -207,7 +207,7 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
       }
     }
 
-    // 🔄 3-QADAM: AGAR HAMMASI BAND BO'LSA - SIZNING SHAXSIY RAPIDAPI KANALINGIZ ISHLAYDI
+    // 🚀 3-MANBA: ZAXIRA PREMIUM RAPIDAPI
     if (!directUrl) {
       try {
         const responseApi = await axios({
@@ -234,12 +234,21 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
       } catch (apiErr) {}
     }
 
-    // ⚡️ TELEGRAMGA DIRECT LINK ORQALI YUBORISH (3-4 SONIYA)
+    // ⚡️ TELEGRAMGA YUBORISH
     if (directUrl) {
       if (isAudio) {
         await ctx.replyWithAudio({ url: directUrl }, { title: videoTitle, performer: performerName });
       } else {
-        await ctx.replyWithVideo({ url: directUrl }, { caption: `🎬 <b>${videoTitle}</b>\n\n📥 @${ctx.botInfo.username}`, parse_mode: "HTML" });
+        // 🛠 MANA SHU YERDA QORA EKRAN MUAMMOSINI TUZATAMIZ:
+        // supports_streaming: false - Telegram pleyerini chalg'itmasdan videoni toza fayl qilib yuklaydi!
+        await ctx.replyWithVideo(
+          { url: directUrl }, 
+          { 
+            caption: `🎬 <b>${videoTitle}</b>\n\n📥 @${ctx.botInfo.username}`, 
+            parse_mode: "HTML",
+            supports_streaming: false 
+          }
+        );
       }
       if (waiting) await ctx.deleteMessage(waiting.message_id).catch(() => {});
       return; 
@@ -313,7 +322,7 @@ bot.action(/dl_(m|v)_(.+)/, async (ctx) => {
 });
 
 bot.launch({ dropPendingUpdates: true })
-  .then(() => console.log("🔥 ULTIMATE STABLE ENGINE ONLINE!"))
+  .then(() => console.log("🔥 METADATA-FIXED ENGINE ONLINE!"))
   .catch((err) => console.error(err.message));
 
 process.once("SIGINT", () => bot.stop("SIGINT"));
