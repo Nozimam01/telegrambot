@@ -4,7 +4,6 @@ const express = require("express");
 const mongoose = require("mongoose");
 const axios = require("axios");
 const crypto = require("crypto");
-const { exec } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 const ytSearch = require("yt-search");
@@ -160,17 +159,9 @@ async function searchYouTubeLive(ctx, query) {
   }
 }
 
-function runLocalDl(command) {
-  const localBin = path.join(__dirname, 'bin');
-  const env = { ...process.env, PATH: `${process.env.PATH}:${localBin}` };
-  return new Promise((resolve, reject) => {
-    exec(command, { env }, (error, stdout, stderr) => { if (error) reject(error); else resolve(stdout); });
-  });
-}
-
-// ================= UNIVERSAL PLATFORM DOWNLOAD ENGINE =================
+// ================= LOYIHA UCHUN YANGI MUKAMMAL RAPIDAPI YUKLASH TIZIMI =================
 async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = "", customPerformer = "") {
-  const waiting = await ctx.reply("⏳ Yuklanmoqda, iltimos kuting...").catch(() => null);
+  const waiting = await ctx.reply("⏳ Sifatli RapidAPI serveriga ulanmoqda...").catch(() => null);
   let url = targetUrl;
   
   let videoTitle = customTitle;
@@ -180,7 +171,6 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
   const isTikTok = url.includes("tiktok.com");
   const isInstagram = url.includes("instagram.com");
 
-  // YouTube sarlavhalarini tekshirish
   if (!videoTitle && isYouTube) {
     try {
       const urlObj = new URL(targetUrl);
@@ -200,26 +190,45 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
   const fileId = crypto.randomUUID().slice(0, 8);
   const ext = isAudio ? "mp3" : "mp4";
   const finalPath = path.join(__dirname, `media_${fileId}.${ext}`);
-  let successDownload = false;
 
-  // ================= 1. YANGI UNIVERSAL ALL-IN-ONE API TIZIMI =================
-  // Bu API Cobalt'dan mustaqil, kuki talab qilmaydi, xatolarsiz va barqaror yuklaydi.
+  // ================= SIZ BERGAN YANGI ALL-IN-ONE API INTEGRATSIYASI =================
   try {
-    if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "🚀 Tezkor server ulanmoqda...").catch(() => {});
+    if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "🚀 Fayl tahlil qilinmoqda va yuklanmoqda...").catch(() => {});
     
-    // Barcha tarmoqlar uchun ishlaydigan super muqobil API API
-    const apiServiceUrl = `https://api.sandros.xyz/download?url=${encodeURIComponent(url)}`;
-    const res = await axios.get(apiServiceUrl, { timeout: 15000 });
+    const responseApi = await axios.post(
+      'https://social-download-all-in-one.p.rapidapi.com/v1/social/autolink',
+      { url: url },
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'x-rapidapi-host': 'social-download-all-in-one.p.rapidapi.com',
+          'x-rapidapi-key': 'd8d01b8fc7msh4b21e81a8a871bcp1307d7jsnd76c8175e018' // Siz taqdim etgan ishchi kalit
+        },
+        timeout: 25000
+      }
+    );
 
-    if (res.data && res.data.url) {
-      if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "📥 Fayl Telegramga uzatilmoqda...").catch(() => {});
+    // API qaytargan javob ichidan video yoki audio havolasini ajratib olamish
+    let mediaUrl = null;
+    const apiData = responseApi.data;
+
+    if (apiData) {
+      // API tuzilishiga qarab eng sifatli linkni avtomatik qidiramiz
+      if (isAudio && apiData.audio) mediaUrl = apiData.audio;
+      else if (apiData.video) mediaUrl = apiData.video;
+      else if (apiData.medias && apiData.medias[0]) mediaUrl = apiData.medias[0].url;
+      else if (apiData.url) mediaUrl = apiData.url;
+    }
+
+    if (mediaUrl) {
+      if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "📥 Telegram ekotizimiga uzatilmoqda...").catch(() => {});
       
       if (!videoTitle) videoTitle = isTikTok ? "TikTok Video" : isInstagram ? "Instagram Media" : "Social Content";
-      if (!performerName) performerName = "Media Downloader";
+      if (!performerName) performerName = "All-In-One Downloader";
 
       const writer = fs.createWriteStream(finalPath);
-      const response = await axios({ url: res.data.url, method: 'GET', responseType: 'stream' });
-      response.data.pipe(writer);
+      const streamResponse = await axios({ url: mediaUrl, method: 'GET', responseType: 'stream' });
+      streamResponse.data.pipe(writer);
 
       await new Promise((resolve, reject) => { writer.on('finish', resolve); writer.on('error', reject); });
 
@@ -230,55 +239,20 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
       }
 
       if (fs.existsSync(finalPath)) fs.unlinkSync(finalPath);
-      successDownload = true;
       if (waiting) await ctx.deleteMessage(waiting.message_id).catch(() => {});
-      return;
+      return; // Muvaffaqiyatli yakunlandi!
     }
-  } catch (err) {
-    console.log("Asosiy yuklash kanali band yoki xato berdi, zaxiraga o'tilmoqda...");
+  } catch (apiErr) {
+    console.error("API xatoligi yuz berdi:", apiErr.message);
   }
 
-  // ================= 2. ZAXIRA YT-DLP CORE TIZIMI =================
-  if (!successDownload) {
-    try {
-      if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "⚡️ Zaxira algoritmi ishlamoqda...").catch(() => {});
-      const outputTemplate = path.join(__dirname, `media_${fileId}.%(ext)s`);
-      
-      let command = isAudio 
-        ? `yt-dlp --no-playlist --no-check-certificates --no-warnings -x --audio-format mp3 -o "${outputTemplate}" "${url}"`
-        : `yt-dlp --no-playlist --no-check-certificates --no-warnings -f "b[ext=mp4]/bv*+ba/b" -o "${outputTemplate}" "${url}"`;
-
-      await runLocalDl(command);
-      const files = fs.readdirSync(__dirname);
-      const downloadedFile = files.find(f => f.startsWith(`media_${fileId}`));
-
-      if (downloadedFile) {
-        const localPath = path.join(__dirname, downloadedFile);
-        
-        if (!videoTitle) videoTitle = isTikTok ? "TikTok Media" : isInstagram ? "Instagram Media" : "Musiqa";
-        if (!performerName) performerName = "Media Downloader";
-
-        if (isAudio) {
-          await ctx.replyWithAudio({ source: localPath }, { title: videoTitle, performer: performerName, filename: `${videoTitle}.mp3` });
-        } else {
-          await ctx.replyWithVideo({ source: localPath }, { caption: `🎬 <b>${videoTitle}</b>\n\n📥 @${ctx.botInfo.username} orqali yuklandi`, parse_mode: "HTML" });
-        }
-        if (fs.existsSync(localPath)) fs.unlinkSync(localPath);
-        if (waiting) await ctx.deleteMessage(waiting.message_id).catch(() => {});
-        return;
-      }
-    } catch (error) {
-      console.log("yt-dlp zaxirasi ham xato berdi.");
-    }
-  }
-
-  // Agar server IP manzili global blokda bo'lsa, xunuk xatolik ko'rsatmaymiz
+  // Barcha urinishlar barbod bo'lsa (masalan, link o'chib ketgan bo'lsa) chiroyli yo'llanma beramiz
   if (waiting) {
     await ctx.telegram.editMessageText(
       ctx.chat.id, 
       waiting.message_id, 
       null, 
-      `❌ <b>Havolani yuklab bo'lmadi!</b>\n\nIjtimoiy tarmoq xavfsizlik tizimi vaqtincha bot tekshiruvi (Captcha) qo'ygani sababli havolani yuklab bo'lmadi.\n\n💡 <b>Siz uchun oson yechim:</b> Pastdagi tugmalardan foydalanib qo'shiq yoki kino nomini shunchaki matn ko'rinishida yozib yuboring (masalan: <i>Sevinch Mo'minova - Ne bo'ldi</i>). Bot qidiruv tizimi orqali uni sizga 100% yuklab beradi!`, 
+      `❌ <b>Ushbu havolani yuklab bo'lmadi!</b>\n\nHavola xato kiritilgan, profil yopiq yoki ijtimoiy tarmoq xavfsizlik tizimi ushbu videoni yuklashga ruxsat bermadi.\n\n💡 <b>Siz uchun 100% ishlaydigan muqobil:</b> Pastdagi tugmalardan foydalanib o'zingizga kerakli qo'shiq yoki kino nomini shunchaki matn ko'rinishida yozib yuboring. Bot uni qidiruv tizimi orqali sizga 100% muammosiz topib beradi!`, 
       { parse_mode: "HTML" }
     ).catch(() => {});
   }
@@ -347,7 +321,7 @@ bot.action(/dl_(m|v)_(.+)/, async (ctx) => {
 });
 
 bot.launch({ dropPendingUpdates: true })
-  .then(() => console.log("🔥 ULTRA-SPEED ENGINE ONLINE!"))
+  .then(() => console.log("🔥 ULTRA-SPEED PREMIUM ENGINE ONLINE!"))
   .catch((err) => console.error(err.message));
 
 process.once("SIGINT", () => bot.stop("SIGINT"));
