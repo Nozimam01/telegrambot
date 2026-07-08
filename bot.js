@@ -199,6 +199,10 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
   const outputPattern = path.join(__dirname, `media_${fileId}.%(ext)s`);
   const finalPath = path.join(__dirname, `media_${fileId}.${isAudio ? 'mp3' : 'mp4'}`);
 
+  // Kuki fayli bor-yo'qligini tekshirish (TUZATILDI)
+  const cookiesPath = path.join(__dirname, "youtube-cookies.txt");
+  const hasCookies = fs.existsSync(cookiesPath);
+
   if (!videoTitle && (targetUrl.includes("youtube.com") || targetUrl.includes("youtu.be"))) {
     try {
       const searchResults = await ytSearch(targetUrl);
@@ -213,6 +217,7 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
   if (!performerName) performerName = "Audio Downloader";
 
   try {
+    // Kuki parametrlari bilan sozlamalar (TUZATILDI)
     const dlOptions = isAudio ? {
       extractAudio: true,
       audioFormat: 'mp3',
@@ -220,13 +225,15 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
       ffmpegLocation: ffmpegStatic,
       output: outputPattern,
       noCheckCertificates: true,
-      noWarnings: true
+      noWarnings: true,
+      ...(hasCookies && { cookie: cookiesPath }) 
     } : {
       format: 'mp4',
       ffmpegLocation: ffmpegStatic,
       output: outputPattern,
       noCheckCertificates: true,
-      noWarnings: true
+      noWarnings: true,
+      ...(hasCookies && { cookie: cookiesPath }) 
     };
 
     if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "📥 Kontent qayta ishlanmoqda...").catch(() => {});
@@ -250,7 +257,7 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
   } catch (err) {
     console.error("Yt-dlp yuklash xatosi:", err.message);
     if (waiting) {
-      await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, `❌ <b>Yuklab bo'lmadi.</b>\n\nHavola noto'g'ri yoki xavfsizlik cheklovi mavjud.`, { parse_mode: "HTML" }).catch(() => {});
+      await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, `❌ <b>Yuklab bo'lmadi.</b>\n\nYouTube bot himoyasi faollashdi. Serverga yangi cookie yuklanishi kerak.`, { parse_mode: "HTML" }).catch(() => {});
     }
   } finally {
     try {
