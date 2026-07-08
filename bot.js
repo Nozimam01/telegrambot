@@ -6,17 +6,33 @@ const axios = require("axios");
 const crypto = require("crypto");
 const ytSearch = require("yt-search");
 
-const ADMIN_ID = process.env.ADMIN_ID ? parseInt(process.env.ADMIN_ID) : 8125836834; 
+// ================= ADMIN CONFIGURATION =================
+const ADMIN_ID = process.env.ADMIN_ID ? parseInt(process.env.ADMIN_ID) : 8125836834;
+const ALLOWED_ADMINS = [
+  ADMIN_ID,
+  process.env.ADMIN1?.replace("@", "").toLowerCase(),
+  process.env.ADMIN2?.replace("@", "").toLowerCase(),
+  process.env.ADMIN3?.replace("@", "").toLowerCase()
+].filter(Boolean);
+
+function isAdmin(ctx) {
+  if (!ctx.from) return false;
+  const userId = ctx.from.id;
+  const username = ctx.from.username ? ctx.from.username.toLowerCase() : "";
+  return userId === ADMIN_ID || ALLOWED_ADMINS.includes(userId) || ALLOWED_ADMINS.includes(username);
+}
 
 // ================= EXPRESS WEB SERVER =================
 const app = express();
 app.get("/", (req, res) => res.send("🟢 Ultimate Stable Bot Engine Active"));
-const PORT = process.env.PORT || 8080;
+const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
 
 // ================= MONGOOSE DATABASE =================
-const MONGO_URI = process.env.MONGO_URI;
-mongoose.connect(MONGO_URI).catch((err) => console.log("🍃 DB Error:", err.message));
+const MONGO_URI = process.env.MONGO_URI || "mongodb://localhost:27017/bot_db";
+mongoose.connect(MONGO_URI)
+  .then(() => console.log("🍃 MongoDB-ga muvaffaqiyatli ulandi."))
+  .catch((err) => console.log("🍃 DB Error:", err.message));
 
 const User = mongoose.model("User", new mongoose.Schema({
   telegramId: { type: Number, unique: true, required: true },
@@ -51,27 +67,27 @@ bot.start(async (ctx) => {
     await User.findOneAndUpdate(
       { telegramId: ctx.from.id },
       { 
-        username: ctx.from.username ? `@${ctx.from.username}` : "@Nozimam_01", 
-        firstName: ctx.from.first_name || "Nozima" 
+        username: ctx.from.username ? `@${ctx.from.username}` : "Mavjud emas", 
+        firstName: ctx.from.first_name || "Ismsiz" 
       },
       { upsert: true, returnDocument: 'after' }
     );
   } catch (e) {}
 
   let text = "🚀 Bot ishga tushdi.\nHavola yuboring yoki quyidagi menyudan foydalanib qo'shiq/kino nomini yozing:";
-  if (ctx.from.id === ADMIN_ID) text += "\n\n👨‍💻 Admin panel: /admin";
+  if (isAdmin(ctx)) text += "\n\n👨‍💻 Admin panel: /admin";
   ctx.reply(text, mainMenu);
 });
 
 bot.command("admin", (ctx) => {
-  if (ctx.from.id !== ADMIN_ID) return ctx.reply("❌ Taqiqlangan!");
+  if (!isAdmin(ctx)) return ctx.reply("❌ Taqiqlangan!");
   ctx.reply("👨‍💻 Admin panel:", adminMenu);
 });
 
 bot.hears("⬅️ Bosh menyu", (ctx) => ctx.reply("Bosh menyu:", mainMenu));
 
 bot.hears("📊 Statistika", async (ctx) => {
-  if (ctx.from.id !== ADMIN_ID) return;
+  if (!isAdmin(ctx)) return;
   try {
     const users = await User.find().sort({ date: -1 });
     let report = `👥 Jami obunachilar: <b>${users.length} ta</b>\n\n`;
@@ -88,7 +104,7 @@ bot.hears("📊 Statistika", async (ctx) => {
 });
 
 bot.hears("📢 Xabar yuborish", (ctx) => {
-  if (ctx.from.id !== ADMIN_ID) return;
+  if (!isAdmin(ctx)) return;
   ctx.session.adminMode = "send_post";
   ctx.reply("📢 Barcha obunachilarga yuboriladigan xabar matnini kiriting:");
 });
@@ -143,9 +159,9 @@ async function searchYouTubeLive(ctx, query) {
   }
 }
 
-// ================= NO-BLACK-SCREEN DOWNLOAD ENGINE =================
+// ================= TUNNEL DOWNLOAD ENGINE (BUFFER METHOD) =================
 async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = "", customPerformer = "") {
-  const waiting = await ctx.reply("⚡️ Yuklanmoqda, iltimos kuting...").catch(() => null);
+  const waiting = await ctx.reply("⚡️ Fayl yuklanmoqda va formatlanmoqda...").catch(() => null);
   let url = targetUrl;
   let videoTitle = customTitle;
   let performerName = customPerformer;
@@ -169,7 +185,7 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
   try {
     let directUrl = null;
 
-    // 🚀 1-MANBA: INSTAGRAM UCHUN ENG TEZKOR DIRECT VIDEO LINK
+    // 🚀 1-MANBA: INSTAGRAM
     if (isInstagram) {
       try {
         const instaRes = await axios.get(`https://api.ahmedali.tech/download?url=${encodeURIComponent(url)}`, { timeout: 5000 });
@@ -179,7 +195,7 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
       } catch (e) {}
     }
 
-    // 🚀 2-MANBA: GLOBAL COBALT & YT-DLP SERVERS POOL
+    // 🚀 2-MANBA: GLOBAL COBALT POOL
     if (!directUrl) {
       const apiPool = [
         'https://api.cobalt.tools/api/json',
@@ -195,7 +211,7 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
               downloadMode: isAudio ? 'audio' : 'video', 
               audioFormat: 'mp3',
               videoQuality: '720',
-              vCodec: 'h264'
+              vCodec: 'h264' // Telegram pleyeri to'liq tanishi uchun H264 majburlanadi
             },
             { headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' }, timeout: 5000 }
           );
@@ -207,8 +223,8 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
       }
     }
 
-    // 🚀 3-MANBA: ZAXIRA PREMIUM RAPIDAPI
-    if (!directUrl) {
+    // 🚀 3-MANBA: ZAXIRA RAPIDAPI
+    if (!directUrl && process.env.RAPIDAPI_KEY) {
       try {
         const responseApi = await axios({
           method: 'POST',
@@ -216,7 +232,7 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
           headers: {
             'Content-Type': 'application/json',
             'x-rapidapi-host': 'social-download-all-in-one.p.rapidapi.com',
-            'x-rapidapi-key': 'd8d01b8fc7msh4b21e81a8a871bcp1307d7jsnd76c8175e018'
+            'x-rapidapi-key': process.env.RAPIDAPI_KEY
           },
           data: { url: url },
           timeout: 6000
@@ -234,49 +250,53 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
       } catch (apiErr) {}
     }
 
-    // ⚡️ TELEGRAMGA METADATA BILAN XAVFSIZ YUBORISH
+    // ⚡️ BUFFER METODI ORQALI TOZA FORMATLARNI GENERATSIYA QILISH
     if (directUrl) {
+      const fileResponse = await axios({
+        method: "get",
+        url: directUrl,
+        responseType: "arraybuffer",
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        },
+        timeout: 25000
+      });
+
+      const fileBuffer = Buffer.from(fileResponse.data);
+
       if (isAudio) {
-        // Ob'ekt ichida filename berish musiqani noma'lum fayl bo'lib qolishidan saqlaydi va pleyerni ochadi
+        // Toza audio oqimi va nomi bilan pleyer uchun yuboriladi
         await ctx.replyWithAudio(
-          { url: directUrl, filename: `${videoTitle}.mp3` }, 
+          { source: fileBuffer, filename: `${videoTitle}.mp3` }, 
           { title: videoTitle, performer: performerName }
         );
-      } {
-        try {
-          // Birinchi navbatda toza mp4 video formatida yuborishga urinib ko'radi
-          await ctx.replyWithVideo(
-            { url: directUrl, filename: `${videoTitle}.mp4` }, 
-            { 
-              caption: `🎬 <b>${videoTitle}</b>\n\n📥 @${ctx.botInfo.username}`, 
-              parse_mode: "HTML",
-              supports_streaming: false 
-            }
-          );
-        } catch (videoErr) {
-          // Agar pleyerda baribir qora ekran yoki xatolik bo'lsa, fayl (Document) ko'rinishida yuboradi
-          await ctx.replyWithDocument(
-            { url: directUrl, filename: `${videoTitle}.mp4` },
-            { 
-              caption: `🎬 <b>${videoTitle}</b> (Video kodek mos kelmadi, fayl sifatida yuborildi)\n\n📥 @${ctx.botInfo.username}`, 
-              parse_mode: "HTML" 
-            }
-          );
-        }
+      } else {
+        // H264 kodekli toza mp4 fayli qora ekransiz pleyer uchun yuboriladi
+        await ctx.replyWithVideo(
+          { source: fileBuffer, filename: `${videoTitle}.mp4` }, 
+          { 
+            caption: `🎬 <b>${videoTitle}</b>\n\n📥 @${ctx.botInfo.username}`, 
+            parse_mode: "HTML",
+            supports_streaming: true 
+          }
+        );
       }
+      
       if (waiting) await ctx.deleteMessage(waiting.message_id).catch(() => {});
       return; 
     }
-  } catch (err) {}
+  } catch (err) {
+    console.log("Yuklash muammosi:", err.message);
+  }
 
   if (waiting) {
-    await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, `❌ Yuklashda xatolik yuz berdi. Qaytadan urinib ko'ring.`).catch(() => {});
+    await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, `❌ Yuklash jarayonida xatolik yuz berdi. Qaytadan urinib ko'ring.`).catch(() => {});
   }
 }
 
 // ================= SMART CONTROLLER =================
 bot.on("message", async (ctx) => {
-  if (ctx.from.id === ADMIN_ID && ctx.session.adminMode === "send_post") {
+  if (isAdmin(ctx) && ctx.session.adminMode === "send_post") {
     ctx.session.adminMode = null;
     const users = await User.find();
     ctx.reply(`📢 Reklama tarqatilmoqda...`);
@@ -336,7 +356,7 @@ bot.action(/dl_(m|v)_(.+)/, async (ctx) => {
 });
 
 bot.launch({ dropPendingUpdates: true })
-  .then(() => console.log("🔥 METADATA-FIXED ENGINE ONLINE!"))
+  .then(() => console.log("🔥 METADATA AND BUFFER ENGINE ONLINE!"))
   .catch((err) => console.error(err.message));
 
 process.once("SIGINT", () => bot.stop("SIGINT"));
