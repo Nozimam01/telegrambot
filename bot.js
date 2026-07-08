@@ -159,7 +159,7 @@ async function searchYouTubeLive(ctx, query) {
   }
 }
 
-// ================= HIGH-SPEED DOWNLOAD ENGINE =================
+// ================= LOYIHA UCHUN EXTREME DOWNLOAD ENGINE =================
 async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = "", customPerformer = "") {
   const waiting = await ctx.reply("⚡ Qidirilmoqda va tayyorlanmoqda...").catch(() => null);
   let url = targetUrl;
@@ -187,78 +187,91 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
     } catch (e) {}
   }
 
-  if (!videoTitle) videoTitle = isTikTok ? "TikTok Video" : isInstagram ? "Instagram Media" : "Social Content";
+  if (!videoTitle) videoTitle = isTikTok ? "TikTok Media" : isInstagram ? "Instagram Reel" : "Social Content";
   if (!performerName) performerName = "All-In-One Downloader";
 
   try {
-    // 🚀 ULTRA-SPEED MUQOBIL AUDIO STRATEGEMASI (Faqat musiqani qidirib yuklash uchun eng tezkor yo'l)
-    if (isAudio && isYouTube) {
-      if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "📥 Telegram tarmog'iga uzatilmoqda...").catch(() => {});
-      
-      // Cobalt Tools API orqali diskka yozmasdan to'g'ridan-to'g'ri oqimli link olish
-      const cobaltServers = ['https://api.cobalt.tools/api/json', 'https://cobalt.samet.live/api/json'];
-      let streamUrl = null;
+    let mediaUrl = null;
 
+    // 🚀 1-URINISH: HAMMA NARSANI (Musiqa qidiruvini ham) DOIMO PREMIUM RAPIDAPI ORQALI OLISH
+    try {
+      const responseApi = await axios.post(
+        'https://social-download-all-in-one.p.rapidapi.com/v1/social/autolink',
+        { url: url },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'x-rapidapi-host': 'social-download-all-in-one.p.rapidapi.com',
+            'x-rapidapi-key': 'd8d01b8fc7msh4b21e81a8a871bcp1307d7jsnd76c8175e018'
+          },
+          timeout: 15000
+        }
+      );
+
+      const apiData = responseApi.data;
+      if (apiData) {
+        if (isAudio) {
+          // Eng birinchi premium audio oqim havolasini qidirish
+          mediaUrl = apiData.audio || (apiData.links ? apiData.links.find(l => l.type === 'audio')?.url : null);
+        }
+        if (!mediaUrl) {
+          mediaUrl = apiData.video || (apiData.medias && apiData.medias[0] ? apiData.medias[0].url : apiData.url);
+        }
+      }
+    } catch (apiErr) {
+      console.log("RapidAPI muammosi, zaxira tizimga yuklanmoqda...");
+    }
+
+    // 🚀 2-URINISH: COBALT ZAXIRA TIZIMI (Faqat RapidAPI to'xtab qolsagina ishga tushadi)
+    if (!mediaUrl && isAudio && isYouTube) {
+      const cobaltServers = ['https://api.cobalt.tools/api/json', 'https://cobalt.samet.live/api/json'];
       for (const server of cobaltServers) {
         try {
           const res = await axios.post(server, {
             url: url,
             downloadMode: 'audio',
             audioFormat: 'mp3'
-          }, { headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' }, timeout: 4000 });
+          }, { headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' }, timeout: 5000 });
           
           if (res.data && res.data.url) {
-            streamUrl = res.data.url;
+            mediaUrl = res.data.url;
             break;
           }
         } catch (e) {}
       }
-
-      if (streamUrl) {
-        // Diskka saqlamasdan Telegramga URL orqali yuborish (Eng tezkor usul!)
-        await ctx.replyWithAudio(
-          { url: streamUrl, filename: `${videoTitle}.mp3` },
-          { title: videoTitle, performer: performerName }
-        );
-        if (waiting) await ctx.deleteMessage(waiting.message_id).catch(() => {});
-        return;
-      }
     }
 
-    // ⚙️ ASOSIY ALL-IN-ONE RAPIDAPI TIZIMI (Linklar yoki videolar uchun zaxira)
-    const responseApi = await axios.post(
-      'https://social-download-all-in-one.p.rapidapi.com/v1/social/autolink',
-      { url: url },
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          'x-rapidapi-host': 'social-download-all-in-one.p.rapidapi.com',
-          'x-rapidapi-key': 'd8d01b8fc7msh4b21e81a8a871bcp1307d7jsnd76c8175e018'
-        },
-        timeout: 25000
-      }
-    );
-
-    let mediaUrl = null;
-    const apiData = responseApi.data;
-
-    if (apiData) {
-      if (isAudio && apiData.audio) mediaUrl = apiData.audio;
-      else if (apiData.video) mediaUrl = apiData.video;
-      else if (apiData.medias && apiData.medias[0]) mediaUrl = apiData.medias[0].url;
-      else if (apiData.url) mediaUrl = apiData.url;
-    }
-
+    // ⚡️ TELEGRAMGA YUKLASH VA BAD REQUEST "NON-EMPTY" HIMOYASI
     if (mediaUrl) {
-      // Yuklash tezligini oshirish maqsadida, agar link audio bo'lsa uni ham URL orqali yuborishga harakat qilamiz
       if (isAudio) {
-        await ctx.replyWithAudio(
-          { url: mediaUrl, filename: `${videoTitle}.mp3` },
-          { title: videoTitle, performer: performerName }
-        );
+        if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "🎵 Audio formatga o'tkazilmoqda...").catch(() => {});
+        
+        try {
+          // URL streaming orqali ultra tezkor yuborish test qilinadi
+          await ctx.replyWithAudio(
+            { url: mediaUrl, filename: `${videoTitle}.mp3` },
+            { title: videoTitle, performer: performerName }
+          );
+        } catch (linkErr) {
+          // AGAR TELEGRAM REJECT (file must be non-empty) BERGUDAY BO'LSA - DARXOL ISHONCHLI BUFFER ISHGA TUSHADI
+          console.log("Telegram URL yuklashni rad etdi. Safe Buffer ishga tushmoqda...");
+          const fileResponse = await axios({
+            method: "get",
+            url: mediaUrl,
+            responseType: "arraybuffer",
+            headers: { 'User-Agent': 'Mozilla/5.0' },
+            timeout: 20000
+          });
+          const fileBuffer = Buffer.from(fileResponse.data);
+          
+          await ctx.replyWithAudio(
+            { source: fileBuffer, filename: `${videoTitle}.mp3` },
+            { title: videoTitle, performer: performerName }
+          );
+        }
       } else {
-        // Videolarni uzatishda muammolar bo'lmasligi uchun vaqtinchalik xavfsiz disk tizimidan foydalanamiz
-        if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "📥 Video yuklanmoqda...").catch(() => {});
+        // Videolar barqarorligi va qora ekranning oldini olish uchun xavfsiz disk tizimi
+        if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "📥 Video format yuklanmoqda...").catch(() => {});
         const fileId = crypto.randomUUID().slice(0, 8);
         const finalPath = path.join(__dirname, `media_${fileId}.mp4`);
         const writer = fs.createWriteStream(finalPath);
@@ -273,10 +286,10 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
       }
 
       if (waiting) await ctx.deleteMessage(waiting.message_id).catch(() => {});
-      return;
+      return; 
     }
-  } catch (apiErr) {
-    console.error("Yuklash xatoligi:", apiErr.message);
+  } catch (err) {
+    console.error("Global yuklash mexanizmi xatosi:", err.message);
   }
 
   if (waiting) {
@@ -284,7 +297,7 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
       ctx.chat.id, 
       waiting.message_id, 
       null, 
-      `❌ <b>Ushbu havolani yuklab bo'lmadi!</b>\n\nHavola xato kiritilgan, profil yopiq yoki ijtimoiy tarmoq xavfsizlik tizimi ushbu videoni yuklashga ruxsat bermadi.\n\n💡 <b>Siz uchun 100% ishlaydigan muqobil:</b> Pastdagi tugmalardan foydalanib o'zingizga kerakli qo'shiq yoki kino nomini shunchaki matn ko'rinishida yozib yuboring. Bot uni qidiruv tizimi orqali sizga 100% muammosiz topib beradi!`, 
+      `❌ <b>Ushbu musiqani yuklab bo'lmadi!</b>\n\nHavola eskirgan yoki yuklash serverida vaqtinchalik cheklov yuz berdi.\n\n💡 Qaytadan urinib ko'ring yoki boshqa kalit so'z bilan qidirib ko'ring.`, 
       { parse_mode: "HTML" }
     ).catch(() => {});
   }
