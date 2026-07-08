@@ -159,9 +159,9 @@ async function searchYouTubeLive(ctx, query) {
   }
 }
 
-// ================= TUNNEL DOWNLOAD ENGINE (BUFFER METHOD) =================
+// ================= TUNNEL DOWNLOAD ENGINE (STABLE RE-FIX) =================
 async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = "", customPerformer = "") {
-  const waiting = await ctx.reply("⚡️ Fayl yuklanmoqda va formatlanmoqda...").catch(() => null);
+  const waiting = await ctx.reply("⚡️ Fayl qayta ishlanmoqda, iltimos kuting...").catch(() => null);
   let url = targetUrl;
   let videoTitle = customTitle;
   let performerName = customPerformer;
@@ -185,8 +185,37 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
   try {
     let directUrl = null;
 
-    // 🚀 1-MANBA: INSTAGRAM
-    if (isInstagram) {
+    // 🚀 1-MANBA: PREMIUM RAPIDAPI (Eng barqaror va sifatli yuklovchi)
+    if (process.env.RAPIDAPI_KEY) {
+      try {
+        const responseApi = await axios({
+          method: 'POST',
+          url: 'https://social-download-all-in-one.p.rapidapi.com/v1/social/autolink',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-rapidapi-host': 'social-download-all-in-one.p.rapidapi.com',
+            'x-rapidapi-key': process.env.RAPIDAPI_KEY
+          },
+          data: { url: url },
+          timeout: 8000
+        });
+
+        const apiData = responseApi.data;
+        if (apiData) {
+          if (apiData.links && apiData.links.length > 0) {
+            const linkObj = isAudio ? apiData.links.find(l => l.type === 'audio') : apiData.links.find(l => l.type === 'video' || l.quality === 'hd');
+            directUrl = linkObj ? linkObj.url : apiData.links[0].url;
+          } else if (apiData.url) {
+            directUrl = apiData.url;
+          }
+        }
+      } catch (apiErr) {
+        console.log("RapidAPI xatosi:", apiErr.message);
+      }
+    }
+
+    // 🚀 2-MANBA: INSTAGRAM TIZIMI RE-DIRECT
+    if (!directUrl && isInstagram) {
       try {
         const instaRes = await axios.get(`https://api.ahmedali.tech/download?url=${encodeURIComponent(url)}`, { timeout: 5000 });
         if (instaRes.data && instaRes.data.url) {
@@ -195,7 +224,7 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
       } catch (e) {}
     }
 
-    // 🚀 2-MANBA: GLOBAL COBALT POOL
+    // 🚀 3-MANBA: ZAXIRA COBALT POOL
     if (!directUrl) {
       const apiPool = [
         'https://api.cobalt.tools/api/json',
@@ -211,7 +240,7 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
               downloadMode: isAudio ? 'audio' : 'video', 
               audioFormat: 'mp3',
               videoQuality: '720',
-              vCodec: 'h264' // Telegram pleyeri to'liq tanishi uchun H264 majburlanadi
+              vCodec: 'h264'
             },
             { headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' }, timeout: 5000 }
           );
@@ -223,74 +252,43 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
       }
     }
 
-    // 🚀 3-MANBA: ZAXIRA RAPIDAPI
-    if (!directUrl && process.env.RAPIDAPI_KEY) {
-      try {
-        const responseApi = await axios({
-          method: 'POST',
-          url: 'https://social-download-all-in-one.p.rapidapi.com/v1/social/autolink',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-rapidapi-host': 'social-download-all-in-one.p.rapidapi.com',
-            'x-rapidapi-key': process.env.RAPIDAPI_KEY
-          },
-          data: { url: url },
-          timeout: 6000
-        });
-
-        const apiData = responseApi.data;
-        if (apiData) {
-          if (apiData.links && apiData.links.length > 0) {
-            const linkObj = isAudio ? apiData.links.find(l => l.type === 'audio') : apiData.links.find(l => l.type === 'video' || l.quality === 'hd');
-            directUrl = linkObj ? linkObj.url : apiData.links[0].url;
-          } else if (apiData.url) {
-            directUrl = apiData.url;
-          }
-        }
-      } catch (apiErr) {}
-    }
-
-    // ⚡️ BUFFER METODI ORQALI TOZA FORMATLARNI GENERATSIYA QILISH
+    // ⚡️ TELEGRAMGA YUBORISH VA PLAYING FORMATLARINI TO'G'IRLASH
     if (directUrl) {
-      const fileResponse = await axios({
-        method: "get",
-        url: directUrl,
-        responseType: "arraybuffer",
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        },
-        timeout: 25000
-      });
-
-      const fileBuffer = Buffer.from(fileResponse.data);
-
       if (isAudio) {
-        // Toza audio oqimi va nomi bilan pleyer uchun yuboriladi
+        // Filename berilishi oq fayl muammosini 100% yopadi, chunki Telegram uning aynan MP3 ekanini tushunadi
         await ctx.replyWithAudio(
-          { source: fileBuffer, filename: `${videoTitle}.mp3` }, 
+          { url: directUrl, filename: `${videoTitle}.mp3` }, 
           { title: videoTitle, performer: performerName }
         );
       } else {
-        // H264 kodekli toza mp4 fayli qora ekransiz pleyer uchun yuboriladi
-        await ctx.replyWithVideo(
-          { source: fileBuffer, filename: `${videoTitle}.mp4` }, 
-          { 
-            caption: `🎬 <b>${videoTitle}</b>\n\n📥 @${ctx.botInfo.username}`, 
-            parse_mode: "HTML",
-            supports_streaming: true 
-          }
-        );
+        try {
+          // Videoni avval oqimli rejimda pleyer uchun uzatamiz
+          await ctx.replyWithVideo(
+            { url: directUrl, filename: `${videoTitle}.mp4` }, 
+            { 
+              caption: `🎬 <b>${videoTitle}</b>\n\n📥 @${ctx.botInfo.username}`, 
+              parse_mode: "HTML",
+              supports_streaming: true 
+            }
+          );
+        } catch (videoErr) {
+          // Agar foydalanuvchi qurilmasida baribir qora ekran yoki format xatosi bo'lsa, uni xavfsiz Document formatida yuboradi
+          await ctx.replyWithDocument(
+            { url: directUrl, filename: `${videoTitle}.mp4` },
+            { caption: `🎬 <b>${videoTitle}</b>\n\n📥 @${ctx.botInfo.username}`, parse_mode: "HTML" }
+          );
+        }
       }
       
       if (waiting) await ctx.deleteMessage(waiting.message_id).catch(() => {});
       return; 
     }
   } catch (err) {
-    console.log("Yuklash muammosi:", err.message);
+    console.log("Global yuklash xatosi:", err.message);
   }
 
   if (waiting) {
-    await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, `❌ Yuklash jarayonida xatolik yuz berdi. Qaytadan urinib ko'ring.`).catch(() => {});
+    await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, `❌ Kechirasiz, ushbu media faylni yuklab bo'lmadi. Havola eskirgan yoki yuklash hajmi ruxsat etilganidan katta.`).catch(() => {});
   }
 }
 
