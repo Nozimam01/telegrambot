@@ -1,6 +1,6 @@
 require("dotenv").config();
 const { Telegraf, Markup } = require("telegraf");
-const { Session } = require("telegraf-session-mongoose"); // MongoDB session
+const MongoSession = require("telegraf-session-mongoose");
 const express = require("express");
 const mongoose = require("mongoose");
 const crypto = require("crypto");
@@ -11,6 +11,12 @@ const youtubedl = require("youtube-dl-exec");
 const ffmpegStatic = require("ffmpeg-static");
 
 const ADMIN_ID = process.env.ADMIN_ID ? parseInt(process.env.ADMIN_ID) : 8125836834; 
+const MONGO_URI = process.env.MONGO_URI; // Environment Variables'dan olinadi
+
+if (!MONGO_URI) {
+  console.error("❌ XATOLIK: MONGO_URI o'zgaruvchisi topilmadi! Platforma sozlamalarini tekshiring.");
+  process.exit(1);
+}
 
 // ================= EXPRESS WEB SERVER =================
 const app = express();
@@ -18,23 +24,21 @@ app.get("/", (req, res) => res.send("🟢 High-Speed Internal Engine Active and 
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
+  
   // SERVERNI UYG'OQ USHLASH TIZIMI (Self-Ping)
-  // O'z serveringiz manzilini (masalan: https://musiqabot.onrender.com) bilsangiz, pastga yozib qo'yishingiz ham mumkin
   setInterval(async () => {
     try {
       const axios = require("axios");
-      // Agar render foydalansangiz, RENDER_EXTERNAL_URL muhit o'zgaruvchisi avtomatik ishlaydi
       const serverUrl = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
       await axios.get(serverUrl);
       console.log("⏰ Serverga ping yuborildi, uyqu rejimi bloklandi.");
     } catch (e) {
-      console.log("⏰ Ping xatosi (muammo yo'q):", e.message);
+      console.log("⏰ Ping xatosi:", e.message);
     }
-  }, 10 * 60 * 1000); // Har 10 daqiqada ping otadi
+  }, 10 * 60 * 1000);
 });
 
 // ================= MONGOOSE DATABASE & SESSION =================
-const MONGO_URI = process.env.MONGO_URI;
 mongoose.connect(MONGO_URI)
   .then(() => console.log("🍃 MongoDB muvaffaqiyatli ulandi!"))
   .catch((err) => console.log("🍃 DB Error:", err.message));
@@ -49,11 +53,11 @@ const User = mongoose.model("User", new mongoose.Schema({
 // ================= BOT INITIALIZATION =================
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
-// Seanslarni xotirada emas, MongoDB ichida saqlash mexanizmi
-bot.use(Session({
+// Seanslarni MongoDB ichida xavfsiz va xatosiz ulash
+bot.use(MongoSession({
   mongodbUri: MONGO_URI,
   collectionName: "telegraf_sessions",
-  ttl: 3600 // 1 soat davomida saqlanadi
+  ttl: 3600
 }));
 
 const mainMenu = Markup.keyboard([
@@ -108,7 +112,7 @@ bot.hears("📊 Statistika", async (ctx) => {
     const count = users.length;
     if (count === 0) {
       if (waiting) await ctx.deleteMessage(waiting.message_id).catch(() => {});
-      return ctx.reply("📊 <b>Bot statistikasi:</b>\n\nHozircha obunachilar macrosi mavjud emas.", { parse_mode: "HTML" });
+      return ctx.reply("📊 <b>Bot statistikasi:</b>\n\nHozircha obunachilar mavjud emas.", { parse_mode: "HTML" });
     }
     let report = `📊 <b>BOT STATISTIKASI</b>\n👥 Jami obunachilar: <b>${count} ta</b>\n\n📋 <b>Foydalanuvchilar ro'yxati:</b>\n`;
     users.forEach((user, index) => {
@@ -164,7 +168,6 @@ async function searchYouTubeLive(ctx, query) {
       
       const trackKey = crypto.randomUUID().slice(0, 8);
       
-      // Endi bu ma'lumot server o'chsa ham MongoDB ichida toshdek qattiq turadi!
       ctx.session[trackKey] = {
         id: video.videoId,
         title: cleanTitle,
@@ -246,7 +249,7 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
   } catch (err) {
     console.error("Yt-dlp yuklash xatosi:", err.message);
     if (waiting) {
-      await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, `❌ <b>Yuklab bo'lmadi.</b>\n\nHavola eskirgan yoki xavfsizlik cheklovi mavjud.`, { parse_mode: "HTML" }).catch(() => {});
+      await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, `❌ <b>Yuklab bo'lmadi.</b>\n\nHavola noto'g'ri yoki xavfsizlik cheklovi mavjud.`, { parse_mode: "HTML" }).catch(() => {});
     }
   } finally {
     try {
@@ -308,7 +311,6 @@ bot.action(/dl_(m|v)_(.+)/, async (ctx) => {
     const isAudio = ctx.match[1] === "m";
     const trackKey = ctx.match[2]; 
     
-    // Ma'lumot MongoDB bazasidan olinadi, shuning uchun xatolik ehtimoli 0%
     const trackData = ctx.session[trackKey];
     if (!trackData) {
       return ctx.reply("❌ Qidiruv muddati tugagan. Qaytadan qidirib ko'ring.");
