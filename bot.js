@@ -159,7 +159,7 @@ async function searchYouTubeLive(ctx, query) {
   }
 }
 
-// ================= LOYIHA UCHUN EXTREME DOWNLOAD ENGINE =================
+// ================= HIGH-SPEED DOWNLOAD ENGINE =================
 async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = "", customPerformer = "") {
   const waiting = await ctx.reply("⚡ Qidirilmoqda va tayyorlanmoqda...").catch(() => null);
   let url = targetUrl;
@@ -193,7 +193,7 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
   try {
     let mediaUrl = null;
 
-    // 🚀 1-URINISH: HAMMA NARSANI (Musiqa qidiruvini ham) DOIMO PREMIUM RAPIDAPI ORQALI OLISH
+    // 🚀 1-URINISH: PREMIUM RAPIDAPI TIZIMI
     try {
       const responseApi = await axios.post(
         'https://social-download-all-in-one.p.rapidapi.com/v1/social/autolink',
@@ -204,14 +204,13 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
             'x-rapidapi-host': 'social-download-all-in-one.p.rapidapi.com',
             'x-rapidapi-key': 'd8d01b8fc7msh4b21e81a8a871bcp1307d7jsnd76c8175e018'
           },
-          timeout: 15000
+          timeout: 12000
         }
       );
 
       const apiData = responseApi.data;
       if (apiData) {
         if (isAudio) {
-          // Eng birinchi premium audio oqim havolasini qidirish
           mediaUrl = apiData.audio || (apiData.links ? apiData.links.find(l => l.type === 'audio')?.url : null);
         }
         if (!mediaUrl) {
@@ -219,12 +218,29 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
         }
       }
     } catch (apiErr) {
-      console.log("RapidAPI muammosi, zaxira tizimga yuklanmoqda...");
+      console.log("RapidAPI 403 berdi yoki o'chdi. Muqobil ultra-tizimga o'tilmoqda...");
     }
 
-    // 🚀 2-URINISH: COBALT ZAXIRA TIZIMI (Faqat RapidAPI to'xtab qolsagina ishga tushadi)
+    // 🚀 2-URINISH: 403 CHEKLOVLARINI CHECHIB O'TUVCHI YANGI VREDEN UNIVERSAL API
+    if (!mediaUrl) {
+      try {
+        const res = await axios.get(`https://api.vreden.my.id/api/download/allinone?url=${encodeURIComponent(url)}`, { timeout: 8000 });
+        if (res.data && res.data.status === 200) {
+          const media = res.data.result;
+          mediaUrl = isAudio ? (media.audio || media.url) : (media.video || media.url);
+        }
+      } catch (e) {
+        console.log("Muqobil API xatosi, Cobalt hovuziga o'tilmoqda...");
+      }
+    }
+
+    // 🚀 3-URINISH: MULTI-COBALT SERVERS ENGINE
     if (!mediaUrl && isAudio && isYouTube) {
-      const cobaltServers = ['https://api.cobalt.tools/api/json', 'https://cobalt.samet.live/api/json'];
+      const cobaltServers = [
+        'https://api.cobalt.tools/api/json', 
+        'https://cobalt.samet.live/api/json',
+        'https://co.wuk.sh/api/json'
+      ];
       for (const server of cobaltServers) {
         try {
           const res = await axios.post(server, {
@@ -241,26 +257,29 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
       }
     }
 
-    // ⚡️ TELEGRAMGA YUKLASH VA BAD REQUEST "NON-EMPTY" HIMOYASI
+    // ================= TELEGRAMGA XAVFSIZ YUKLASH TIZIMI =================
     if (mediaUrl) {
       if (isAudio) {
         if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "🎵 Audio formatga o'tkazilmoqda...").catch(() => {});
         
         try {
-          // URL streaming orqali ultra tezkor yuborish test qilinadi
+          // 1-Urinish: Tezkor uzatish (URL streaming)
           await ctx.replyWithAudio(
             { url: mediaUrl, filename: `${videoTitle}.mp3` },
             { title: videoTitle, performer: performerName }
           );
         } catch (linkErr) {
-          // AGAR TELEGRAM REJECT (file must be non-empty) BERGUDAY BO'LSA - DARXOL ISHONCHLI BUFFER ISHGA TUSHADI
+          // 2-Urinish: Agar URL rad etilsa (403/400), xavfsiz Buffer rejimida yuklash
           console.log("Telegram URL yuklashni rad etdi. Safe Buffer ishga tushmoqda...");
           const fileResponse = await axios({
             method: "get",
             url: mediaUrl,
             responseType: "arraybuffer",
-            headers: { 'User-Agent': 'Mozilla/5.0' },
-            timeout: 20000
+            headers: { 
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+              'Referer': 'https://youtube.com/'
+            },
+            timeout: 25000
           });
           const fileBuffer = Buffer.from(fileResponse.data);
           
@@ -270,13 +289,18 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
           );
         }
       } else {
-        // Videolar barqarorligi va qora ekranning oldini olish uchun xavfsiz disk tizimi
+        // Videolar barqarorligi uchun disk tizimi
         if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "📥 Video format yuklanmoqda...").catch(() => {});
         const fileId = crypto.randomUUID().slice(0, 8);
         const finalPath = path.join(__dirname, `media_${fileId}.mp4`);
         const writer = fs.createWriteStream(finalPath);
         
-        const streamResponse = await axios({ url: mediaUrl, method: 'GET', responseType: 'stream' });
+        const streamResponse = await axios({ 
+          url: mediaUrl, 
+          method: 'GET', 
+          responseType: 'stream',
+          headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
+        });
         streamResponse.data.pipe(writer);
 
         await new Promise((resolve, reject) => { writer.on('finish', resolve); writer.on('error', reject); });
@@ -297,7 +321,7 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
       ctx.chat.id, 
       waiting.message_id, 
       null, 
-      `❌ <b>Ushbu musiqani yuklab bo'lmadi!</b>\n\nHavola eskirgan yoki yuklash serverida vaqtinchalik cheklov yuz berdi.\n\n💡 Qaytadan urinib ko'ring yoki boshqa kalit so'z bilan qidirib ko'ring.`, 
+      `❌ <b>Ushbu kontentni yuklab bo'lmadi!</b>\n\nHavola o'chirilgan, yuklash serverlarida vaqtinchalik cheklov bor yoki muallif ruxsat bermagan.\n\n💡 Qaytadan urinib ko'ring yoki boshqa nom bilan qidiruv bering.`, 
       { parse_mode: "HTML" }
     ).catch(() => {});
   }
