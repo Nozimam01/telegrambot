@@ -6,6 +6,7 @@
     "start": "node bot.js"
   },
   "dependencies": {
+    "@distube/ytdl-core": "^4.16.12",
     "axios": "^1.18.1",
     "cors": "^2.8.5",
     "crypto": "^1.0.1",
