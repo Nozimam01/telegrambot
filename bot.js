@@ -51,8 +51,8 @@ bot.start(async (ctx) => {
     await User.findOneAndUpdate(
       { telegramId: ctx.from.id },
       { 
-        username: ctx.from.username ? `@${ctx.from.username}` : "Mavjud emas", 
-        firstName: ctx.from.first_name || "Ismsiz" 
+        username: ctx.from.username ? `@${ctx.from.username}` : "@Nozimam_01", 
+        firstName: ctx.from.first_name || "Nozima" 
       },
       { upsert: true, returnDocument: 'after' }
     );
@@ -145,7 +145,7 @@ async function searchYouTubeLive(ctx, query) {
 
 // ================= NO-BLACK-SCREEN DOWNLOAD ENGINE =================
 async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = "", customPerformer = "") {
-  const waiting = await ctx.reply("⚡️").catch(() => null);
+  const waiting = await ctx.reply("⚡️ Yuklanmoqda, iltimos kuting...").catch(() => null);
   let url = targetUrl;
   let videoTitle = customTitle;
   let performerName = customPerformer;
@@ -169,7 +169,7 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
   try {
     let directUrl = null;
 
-    // 🚀 1-MANBA: INSTAGRAM UCHUN ENG TEZKOR DIRECT VIDEO LINK (MP4 H264)
+    // 🚀 1-MANBA: INSTAGRAM UCHUN ENG TEZKOR DIRECT VIDEO LINK
     if (isInstagram) {
       try {
         const instaRes = await axios.get(`https://api.ahmedali.tech/download?url=${encodeURIComponent(url)}`, { timeout: 5000 });
@@ -234,21 +234,35 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
       } catch (apiErr) {}
     }
 
-    // ⚡️ TELEGRAMGA YUBORISH
+    // ⚡️ TELEGRAMGA METADATA BILAN XAVFSIZ YUBORISH
     if (directUrl) {
       if (isAudio) {
-        await ctx.replyWithAudio({ url: directUrl }, { title: videoTitle, performer: performerName });
-      } else {
-        // 🛠 MANA SHU YERDA QORA EKRAN MUAMMOSINI TUZATAMIZ:
-        // supports_streaming: false - Telegram pleyerini chalg'itmasdan videoni toza fayl qilib yuklaydi!
-        await ctx.replyWithVideo(
-          { url: directUrl }, 
-          { 
-            caption: `🎬 <b>${videoTitle}</b>\n\n📥 @${ctx.botInfo.username}`, 
-            parse_mode: "HTML",
-            supports_streaming: false 
-          }
+        // Ob'ekt ichida filename berish musiqani noma'lum fayl bo'lib qolishidan saqlaydi va pleyerni ochadi
+        await ctx.replyWithAudio(
+          { url: directUrl, filename: `${videoTitle}.mp3` }, 
+          { title: videoTitle, performer: performerName }
         );
+      } {
+        try {
+          // Birinchi navbatda toza mp4 video formatida yuborishga urinib ko'radi
+          await ctx.replyWithVideo(
+            { url: directUrl, filename: `${videoTitle}.mp4` }, 
+            { 
+              caption: `🎬 <b>${videoTitle}</b>\n\n📥 @${ctx.botInfo.username}`, 
+              parse_mode: "HTML",
+              supports_streaming: false 
+            }
+          );
+        } catch (videoErr) {
+          // Agar pleyerda baribir qora ekran yoki xatolik bo'lsa, fayl (Document) ko'rinishida yuboradi
+          await ctx.replyWithDocument(
+            { url: directUrl, filename: `${videoTitle}.mp4` },
+            { 
+              caption: `🎬 <b>${videoTitle}</b> (Video kodek mos kelmadi, fayl sifatida yuborildi)\n\n📥 @${ctx.botInfo.username}`, 
+              parse_mode: "HTML" 
+            }
+          );
+        }
       }
       if (waiting) await ctx.deleteMessage(waiting.message_id).catch(() => {});
       return; 
