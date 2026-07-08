@@ -19,6 +19,50 @@ if (!MONGO_URI) {
   process.exit(1);
 }
 
+// ================= AUTOMATIC COOKIE GENERATOR =================
+const cookiesPath = path.join(__dirname, "youtube-cookies.txt");
+if (process.env.YT_COOKIES_STRING) {
+  try {
+    const raw = process.env.YT_COOKIES_STRING;
+    // Matndan kerakli kalit va qiymatlarni parse qilish
+    const keys = ["HSID", "LOGIN_INFO", "PREF", "SAPISID", "SID", "SIDCC", "SSID", "VISITOR_INFO1_LIVE", "VISITOR_PRIVACY_METADATA", "YSC"];
+    let cookieLines = [
+      "# Netscape HTTP Cookie File",
+      "# http://curl.haxx.se/rfc/cookie_spec.html",
+      "# This is a generated file! Do not edit.",
+      ""
+    ];
+
+    keys.forEach(key => {
+      const regex = new RegExp(`${key}(.*?)\\.youtube\\.com`, "g");
+      const match = raw.match(regex);
+      if (match) {
+        // Qiymatni tozalab olish
+        let val = match[0].replace(key, "").replace(".youtube.com", "").trim();
+        if (key === "PREF") val = "tz=Asia.Tashkent&f7=100&f4=4010000";
+        
+        // Netscape formati uchun Tab bilan ajratilgan qator yaratish
+        cookieLines.push(`.youtube.com\tTRUE\t/\t${key === "LOGIN_INFO" || key === "SAPISID" || key === "SIDCC" ? "TRUE" : "FALSE"}\t0\t${key}\t${val}`);
+        
+        // Qo'shimcha xavfsizlik kalitlarini emulyatsiya qilish
+        if (key === "SID") {
+          cookieLines.push(`.youtube.com\tTRUE\t/\tTRUE\t0\t__Secure-3PSID\t${val}`);
+          cookieLines.push(`.youtube.com\tTRUE\t/\tTRUE\t0\t__Secure-1PSID\t${val}`);
+        }
+        if (key === "SAPISID") {
+          cookieLines.push(`.youtube.com\tTRUE\t/\tTRUE\t0\t__Secure-3PAPISID\t${val}`);
+          cookieLines.push(`.youtube.com\tTRUE\t/\tTRUE\t0\t__Secure-1PAPISID\t${val}`);
+        }
+      }
+    });
+
+    fs.writeFileSync(cookiesPath, cookieLines.join("\n"), "utf-8");
+    console.log("✅ YouTube Cookie fayli matndan muvaffaqiyatli generatsiya qilindi!");
+  } catch (err) {
+    console.error("❌ Cookie generatsiya xatosi:", err.message);
+  }
+}
+
 // ================= EXPRESS WEB SERVER =================
 const app = express();
 app.get("/", (req, res) => res.send("🟢 Engine Active and Awake"));
@@ -26,7 +70,6 @@ const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   
-  // SERVERNI UYG'OQ USHLASH TIZIMI (Self-Ping)
   setInterval(async () => {
     try {
       const axios = require("axios");
@@ -53,12 +96,9 @@ const User = mongoose.model("User", new mongoose.Schema({
 
 // ================= BOT INITIALIZATION =================
 const bot = new Telegraf(process.env.BOT_TOKEN);
-
-// Seanslarni ulash tizimi
 const client = new MongoClient(MONGO_URI);
 const db = client.db(); 
 
-// Birinchi parametr db ob'ekti, ikkinchisi kolleksiya sozlamasi
 bot.use(session(db, { collectionName: "telegraf_sessions" }));
 
 const mainMenu = Markup.keyboard([
@@ -199,8 +239,6 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
   const outputPattern = path.join(__dirname, `media_${fileId}.%(ext)s`);
   const finalPath = path.join(__dirname, `media_${fileId}.${isAudio ? 'mp3' : 'mp4'}`);
 
-  // Kuki fayli bor-yo'qligini tekshirish
-  const cookiesPath = path.join(__dirname, "youtube-cookies.txt");
   const hasCookies = fs.existsSync(cookiesPath);
 
   if (!videoTitle && (targetUrl.includes("youtube.com") || targetUrl.includes("youtu.be"))) {
@@ -217,7 +255,6 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
   if (!performerName) performerName = "Audio Downloader";
 
   try {
-    // Kuki parametrlari bilan sozlamalar (--cookies flagi TUZATILDI)
     const dlOptions = isAudio ? {
       extractAudio: true,
       audioFormat: 'mp3',
@@ -226,6 +263,7 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
       output: outputPattern,
       noCheckCertificates: true,
       noWarnings: true,
+      youtubeSkipDashManifest: true,
       ...(hasCookies && { cookies: cookiesPath }) 
     } : {
       format: 'mp4',
@@ -233,6 +271,7 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
       output: outputPattern,
       noCheckCertificates: true,
       noWarnings: true,
+      youtubeSkipDashManifest: true,
       ...(hasCookies && { cookies: cookiesPath }) 
     };
 
@@ -257,7 +296,7 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
   } catch (err) {
     console.error("Yt-dlp yuklash xatosi:", err.message);
     if (waiting) {
-      await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, `❌ <b>Yuklab bo'lmadi.</b>\n\nYouTube bot himoyasi faollashdi. Serverga yangi cookie yuklanishi kerak.`, { parse_mode: "HTML" }).catch(() => {});
+      await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, `❌ <b>Yuklab bo'lmadi.</b>\n\nYouTube bot himoyasi faollashdi. Yangi cookie kerak.`, { parse_mode: "HTML" }).catch(() => {});
     }
   } finally {
     try {
@@ -335,7 +374,6 @@ bot.action(/dl_(m|v)_(.+)/, async (ctx) => {
   }
 });
 
-// Botni MongoDB mijoziga ulab ishga tushirish
 client.connect().then(() => {
   bot.launch({ dropPendingUpdates: true })
     .then(() => console.log("🔥 PERSISTENT MONGO ENGINE ONLINE & ANTI-SLEEP ACTIVE!"))
