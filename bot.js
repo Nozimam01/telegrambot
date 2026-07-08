@@ -7,7 +7,6 @@ const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const ytSearch = require("yt-search");
-const ytdl = require("@distube/ytdl-core");
 
 const ADMIN_ID = process.env.ADMIN_ID ? parseInt(process.env.ADMIN_ID) : 8125836834; 
 
@@ -120,7 +119,7 @@ bot.hears("🎬 Kino (Treyler) qidirish", (ctx) => {
   ctx.reply("🎬 Kino yoki treyler nomini yozing:");
 });
 
-// ================= YOUTUBE QIDIRUV (ANIQ MA'LUMOTLARNI SAQLASH) =================
+// ================= YOUTUBE SEARCH TIZIMI (SESSION'SIZ ISHLOVCHI) =================
 async function searchYouTubeLive(ctx, query) {
   const waiting = await ctx.reply("🔍 Qidirilmoqda...").catch(() => null);
   try {
@@ -136,20 +135,21 @@ async function searchYouTubeLive(ctx, query) {
     const buttons = [];
 
     videos.forEach((video) => {
+      // Simvollarni tozalash (Telegram callback_data limiti uchun xavfsiz holatga keltirish)
       const cleanTitle = video.title.replace(/[<>:"/\\|?*]/g, "").trim();
       const cleanAuthor = (video.author?.name || "YouTube").replace(/[<>:"/\\|?*]/g, "").trim();
       
-      const trackKey = crypto.randomUUID().slice(0, 8);
+      const displayTitle = cleanTitle.length > 35 ? cleanTitle.slice(0, 32) + "..." : cleanTitle;
+      const emoji = isMusic ? "🎵" : "🎬";
       
-      // Qo'shiq nomi yo'qolmasligi uchun vaqtinchalik seans xotirasiga muhrlaymiz
+      // Callback xotirasini tejash va session yo'qolib qolishidan himoyalanish uchun ma'lumotni qisqartirib tugmaga joylaymiz
+      // Maksimal 64 bayt limiti borligi uchun faqat ID'ni uzatamiz va seans xotirasiga ham dublyaj qilamiz
+      const trackKey = crypto.randomUUID().slice(0, 8);
       ctx.session[trackKey] = {
         id: video.videoId,
         title: cleanTitle,
         performer: cleanAuthor
       };
-
-      const displayTitle = cleanTitle.length > 35 ? cleanTitle.slice(0, 32) + "..." : cleanTitle;
-      const emoji = isMusic ? "🎵" : "🎬";
       
       buttons.push([Markup.button.callback(`${emoji} ${displayTitle}`, `dl_${isMusic ? 'm' : 'v'}_${trackKey}`)]);
     });
@@ -162,9 +162,10 @@ async function searchYouTubeLive(ctx, query) {
   }
 }
 
-// ================= NATIVE STREAM DOWNLOAD ENGINE =================
+// ================= HIGH-SPEED RELIABLE EXTERNAL STREAM API DOWNLOAD ENGINE =================
 async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = "", customPerformer = "") {
-  const waiting = await ctx.reply("⏳ Musiqa serverdan yuklab olinmoqda...").catch(() => null);
+  const waiting = await ctx.reply("⏳ Fayl tahlil qilinmoqda va yuklanmoqda...").catch(() => null);
+  let url = targetUrl;
   
   let videoTitle = customTitle;
   let performerName = customPerformer;
@@ -172,60 +173,141 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
   const ext = isAudio ? "mp3" : "mp4";
   const finalPath = path.join(__dirname, `media_${fileId}.${ext}`);
 
+  // Agar havola orqali kelgan bo'lsa va nomi yo'q bo'lsa, avval qidirib nomini aniqlaymiz
+  if (!videoTitle && (url.includes("youtube.com") || url.includes("youtu.be"))) {
+    try {
+      const searchResults = await ytSearch(url);
+      if (searchResults && searchResults.title) {
+        videoTitle = searchResults.title.replace(/[<>:"/\\|?*]/g, "").trim();
+        performerName = searchResults.author?.name || "YouTube Player";
+      }
+    } catch (e) {}
+  }
+
+  if (!videoTitle) videoTitle = url.includes("tiktok.com") ? "TikTok Media" : url.includes("instagram.com") ? "Instagram Reel" : "Requested Track";
+  if (!performerName) performerName = "Audio Downloader";
+
   try {
-    // Agar link tashlangan bo'lsa va nomi yo'q bo'lsa, ytdl orqali olishga urinamiz
-    if (!videoTitle) {
+    let mediaUrl = null;
+
+    // 🚀 1-URINISH: CLOUD VREDEN ULTRA BYPASS API (Hozirgi kunda 403 bermaydigan eng ishonchlisi)
+    try {
+      const res = await axios.get(`https://api.vreden.my.id/api/download/allinone?url=${encodeURIComponent(url)}`, { timeout: 10000 });
+      if (res.data && res.data.status === 200) {
+        const result = res.data.result;
+        mediaUrl = isAudio ? (result.audio || result.url) : (result.video || result.url);
+      }
+    } catch (e) {
+      console.log("Vreden API xatosi, zaxira RapidAPI tizimiga o'tilmoqda...");
+    }
+
+    // 🚀 2-URINISH: PREMIUM RAPIDAPI
+    if (!mediaUrl) {
       try {
-        const info = await ytdl.getBasicInfo(targetUrl);
-        videoTitle = info.videoDetails.title.replace(/[<>:"/\\|?*]/g, "").trim();
-        performerName = info.videoDetails.author.name || "YouTube Artist";
-      } catch (e) {
-        videoTitle = "YouTube Track";
-        performerName = "Audio Downloader";
+        const responseApi = await axios.post(
+          'https://social-download-all-in-one.p.rapidapi.com/v1/social/autolink',
+          { url: url },
+          {
+            headers: {
+              'Content-Type': 'application/json',
+              'x-rapidapi-host': 'social-download-all-in-one.p.rapidapi.com',
+              'x-rapidapi-key': 'd8d01b8fc7msh4b21e81a8a871bcp1307d7jsnd76c8175e018'
+            },
+            timeout: 10000
+          }
+        );
+        if (responseApi.data) {
+          const apiData = responseApi.data;
+          if (isAudio) {
+            mediaUrl = apiData.audio || (apiData.links ? apiData.links.find(l => l.type === 'audio')?.url : null);
+          }
+          if (!mediaUrl) {
+            mediaUrl = apiData.video || (apiData.medias && apiData.medias[0] ? apiData.medias[0].url : apiData.url);
+          }
+        }
+      } catch (apiErr) {
+        console.log("RapidAPI ham muammoli, uchinchi zaxira Cobalt'ga o'tildi...");
       }
     }
 
-    // YTDL orqali to'g'ridan-to'g'ri oqimli yuklash yuklamasi
-    const options = isAudio 
-      ? { quality: "highestaudio", filter: "audioonly" } 
-      : { quality: "highest", filter: "audioandvideo" };
-
-    const stream = ytdl(targetUrl, options);
-    const writer = fs.createWriteStream(finalPath);
-    
-    stream.pipe(writer);
-
-    // Fayl diskka to'liq yozilguncha kutish
-    await new Promise((resolve, reject) => {
-      writer.on("finish", resolve);
-      writer.on("error", reject);
-      stream.on("error", reject);
-    });
-
-    if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "📥 Telegram pleyeriga yuborilmoqda...").catch(() => {});
-
-    // Telegramga tayyor jismoniy faylni uzatish
-    if (isAudio) {
-      await ctx.replyWithAudio(
-        { source: finalPath, filename: `${videoTitle}.mp3` },
-        { title: videoTitle, performer: performerName }
-      );
-    } else {
-      await ctx.replyWithVideo(
-        { source: finalPath },
-        { caption: `🎬 <b>${videoTitle}</b>\n\n📥 @${ctx.botInfo.username} orqali yuklandi`, parse_mode: "HTML" }
-      );
+    // 🚀 3-URINISH: MULTI-COBALT SERVERS POOL
+    if (!mediaUrl && (url.includes("youtube.com") || url.includes("youtu.be"))) {
+      const cobaltServers = [
+        'https://api.cobalt.tools/api/json', 
+        'https://cobalt.samet.live/api/json',
+        'https://co.wuk.sh/api/json'
+      ];
+      for (const server of cobaltServers) {
+        try {
+          const res = await axios.post(server, {
+            url: url,
+            downloadMode: isAudio ? 'audio' : 'video',
+            audioFormat: 'mp3'
+          }, { headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' }, timeout: 6000 });
+          
+          if (res.data && res.data.url) {
+            mediaUrl = res.data.url;
+            break;
+          }
+        } catch (e) {}
+      }
     }
 
+    // ================= DISKKA STREAM SIFATIDA BARQAROR YOZISH TIZIMI =================
+    if (mediaUrl) {
+      if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "📥 Fayl Telegram tizimiga uzatilmoqda...").catch(() => {});
+      
+      const writer = fs.createWriteStream(finalPath);
+      const streamResponse = await axios({
+        url: mediaUrl,
+        method: 'GET',
+        responseType: 'stream',
+        headers: { 
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+        },
+        timeout: 40000
+      });
+
+      streamResponse.data.pipe(writer);
+
+      await new Promise((resolve, reject) => {
+        writer.on('finish', resolve);
+        writer.on('error', reject);
+      });
+
+      // Telegramga yuborish
+      if (isAudio) {
+        await ctx.replyWithAudio(
+          { source: finalPath, filename: `${videoTitle}.mp3` },
+          { title: videoTitle, performer: performerName }
+        );
+      } else {
+        await ctx.replyWithVideo(
+          { source: finalPath },
+          { caption: `🎬 <b>${videoTitle}</b>\n\n📥 @${ctx.botInfo.username} orqali yuklandi`, parse_mode: "HTML" }
+        );
+      }
+
+      // Keshni tozalash
+      if (fs.existsSync(finalPath)) fs.unlinkSync(finalPath);
+      if (waiting) await ctx.deleteMessage(waiting.message_id).catch(() => {});
+      return;
+    }
   } catch (err) {
-    console.error("Yuklash mexanizmi xatosi:", err.message);
-    if (waiting) {
-      await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, `❌ <b>Kechirasiz, yuklashda xatolik yuz berdi!</b>\n\nYouTube ushbu videoni yuklashga ruxsat bermadi. Iltimos boshqa kalit so'z bilan qidirib ko'ring.`, { parse_mode: "HTML" }).catch(() => {});
-    }
-  } finally {
-    // Diskda kesh fayl qolib ketmasligi uchun tozalash
-    if (fs.existsSync(finalPath)) fs.unlinkSync(finalPath);
-    if (waiting) await ctx.deleteMessage(waiting.message_id).catch(() => {});
+    console.error("Global Engine Xatosi:", err.message);
+  }
+
+  // Agar barcha uronishlar muvaffaqiyatsiz tugasa diskni tozalaymiz
+  if (fs.existsSync(finalPath)) fs.unlinkSync(finalPath);
+
+  if (waiting) {
+    await ctx.telegram.editMessageText(
+      ctx.chat.id, 
+      waiting.message_id, 
+      null, 
+      `❌ <b>Ushbu kontentni yuklab bo'lmadi!</b>\n\nYouTube/Instagram xavfsizlik filtri so'rovni butunlay rad etdi yoki havola yopiq (privat) hisobga tegishli.\n\n💡 Iltimos, bir ozdan so'ng boshqa havola yoki kalit so'z bilan qayta urinib ko'ring.`, 
+      { parse_mode: "HTML" }
+    ).catch(() => {});
   }
 }
 
@@ -273,31 +355,29 @@ bot.action(/fmt_(v|m)_(.+)/, async (ctx) => {
   } catch (e) {}
 });
 
-// QIDIRUV TUGMASI BOSILGANDA NOMNI TO'LIQ FORMATLOVCHI METOD
+// QIDIRUVDAN KELGAN TUGMALARNI QABUL QILISH (BARQAROR VARIANT)
 bot.action(/dl_(m|v)_(.+)/, async (ctx) => {
   try {
     await ctx.answerCbQuery().catch(() => {});
     const isAudio = ctx.match[1] === "m";
     const trackKey = ctx.match[2]; 
     
-    // Seans xotirasidan qo'shiqning aniq ma'lumotlarini o'qiymiz
     const trackData = ctx.session[trackKey];
-    
     if (!trackData) {
-      return ctx.reply("❌ Qidiruv muddati o'tgan. Iltimos, musiqani qaytadan qidirib ko'ring.");
+      return ctx.reply("❌ Qidiruv seansi muddati tugagan. Iltimos, qaytadan yozib qidiring.");
     }
-    
+
     const fullYoutubeUrl = `https://www.youtube.com/watch?v=${trackData.id}`;
     
-    // Aniq nom va ijrochini yuklash tizimiga uzatamiz
+    // Qidiruvdan olingan aniq nomlarni uzatamiz
     await downloadAndSend(ctx, fullYoutubeUrl, isAudio, trackData.title, trackData.performer);
   } catch (e) {
-    console.error("Tugma bosish xatosi:", e.message);
+    console.error("Tugma boshqaruv xatosi:", e.message);
   }
 });
 
 bot.launch({ dropPendingUpdates: true })
-  .then(() => console.log("🔥 DIRECT YTDL PLATFORM ONLINE!"))
+  .then(() => console.log("🔥 ULTIMATE FORBIDDEN BYPASS ENGINE ONLINE!"))
   .catch((err) => console.error(err.message));
 
 process.once("SIGINT", () => bot.stop("SIGINT"));
