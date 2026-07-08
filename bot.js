@@ -54,7 +54,7 @@ const User = mongoose.model("User", new mongoose.Schema({
 // ================= BOT INITIALIZATION =================
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
-// Seanslarni ulash tizimi (TUZATILDI)
+// Seanslarni ulash tizimi
 const client = new MongoClient(MONGO_URI);
 const db = client.db(); 
 
@@ -199,7 +199,7 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
   const outputPattern = path.join(__dirname, `media_${fileId}.%(ext)s`);
   const finalPath = path.join(__dirname, `media_${fileId}.${isAudio ? 'mp3' : 'mp4'}`);
 
-  // Kuki fayli bor-yo'qligini tekshirish (TUZATILDI)
+  // Kuki fayli bor-yo'qligini tekshirish
   const cookiesPath = path.join(__dirname, "youtube-cookies.txt");
   const hasCookies = fs.existsSync(cookiesPath);
 
@@ -217,7 +217,7 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
   if (!performerName) performerName = "Audio Downloader";
 
   try {
-    // Kuki parametrlari bilan sozlamalar (TUZATILDI)
+    // Kuki parametrlari bilan sozlamalar (--cookies flagi TUZATILDI)
     const dlOptions = isAudio ? {
       extractAudio: true,
       audioFormat: 'mp3',
@@ -226,14 +226,14 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
       output: outputPattern,
       noCheckCertificates: true,
       noWarnings: true,
-      ...(hasCookies && { cookie: cookiesPath }) 
+      ...(hasCookies && { cookies: cookiesPath }) 
     } : {
       format: 'mp4',
       ffmpegLocation: ffmpegStatic,
       output: outputPattern,
       noCheckCertificates: true,
       noWarnings: true,
-      ...(hasCookies && { cookie: cookiesPath }) 
+      ...(hasCookies && { cookies: cookiesPath }) 
     };
 
     if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "📥 Kontent qayta ishlanmoqda...").catch(() => {});
