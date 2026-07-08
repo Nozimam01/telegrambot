@@ -120,7 +120,7 @@ bot.hears("🎬 Kino (Treyler) qidirish", (ctx) => {
   ctx.reply("🎬 Kino yoki treyler nomini yozing:");
 });
 
-// ================= YOUTUBE QIDIRUV (TUGMALARGA ID BIRIKTIRISH) =================
+// ================= YOUTUBE QIDIRUV (ANIQ MA'LUMOTLARNI SAQLASH) =================
 async function searchYouTubeLive(ctx, query) {
   const waiting = await ctx.reply("🔍 Qidirilmoqda...").catch(() => null);
   try {
@@ -137,11 +137,21 @@ async function searchYouTubeLive(ctx, query) {
 
     videos.forEach((video) => {
       const cleanTitle = video.title.replace(/[<>:"/\\|?*]/g, "").trim();
+      const cleanAuthor = (video.author?.name || "YouTube").replace(/[<>:"/\\|?*]/g, "").trim();
+      
+      const trackKey = crypto.randomUUID().slice(0, 8);
+      
+      // Qo'shiq nomi yo'qolmasligi uchun vaqtinchalik seans xotirasiga muhrlaymiz
+      ctx.session[trackKey] = {
+        id: video.videoId,
+        title: cleanTitle,
+        performer: cleanAuthor
+      };
+
       const displayTitle = cleanTitle.length > 35 ? cleanTitle.slice(0, 32) + "..." : cleanTitle;
       const emoji = isMusic ? "🎵" : "🎬";
       
-      // Callback xabar hajmi kichik bo'lishi uchun faqat ID uzatamiz
-      buttons.push([Markup.button.callback(`${emoji} ${displayTitle}`, `dl_${isMusic ? 'm' : 'v'}_${video.videoId}`)]);
+      buttons.push([Markup.button.callback(`${emoji} ${displayTitle}`, `dl_${isMusic ? 'm' : 'v'}_${trackKey}`)]);
     });
 
     if (waiting) await ctx.deleteMessage(waiting.message_id).catch(() => {});
@@ -152,7 +162,7 @@ async function searchYouTubeLive(ctx, query) {
   }
 }
 
-// ================= INTERNAL NATVIVE YTDL DOWNLOAD ENGINE =================
+// ================= NATIVE STREAM DOWNLOAD ENGINE =================
 async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = "", customPerformer = "") {
   const waiting = await ctx.reply("⏳ Musiqa serverdan yuklab olinmoqda...").catch(() => null);
   
@@ -163,7 +173,7 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
   const finalPath = path.join(__dirname, `media_${fileId}.${ext}`);
 
   try {
-    // Agar bu oddiy havola bo'lsa va nomi berilmagan bo'lsa, ma'lumotni ytdl orqali olamiz
+    // Agar link tashlangan bo'lsa va nomi yo'q bo'lsa, ytdl orqali olishga urinamiz
     if (!videoTitle) {
       try {
         const info = await ytdl.getBasicInfo(targetUrl);
@@ -175,7 +185,7 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
       }
     }
 
-    // YTDL sozlamalari
+    // YTDL orqali to'g'ridan-to'g'ri oqimli yuklash yuklamasi
     const options = isAudio 
       ? { quality: "highestaudio", filter: "audioonly" } 
       : { quality: "highest", filter: "audioandvideo" };
@@ -185,7 +195,7 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
     
     stream.pipe(writer);
 
-    // Fayl diskka to'liq yozilishini kutamiz
+    // Fayl diskka to'liq yozilguncha kutish
     await new Promise((resolve, reject) => {
       writer.on("finish", resolve);
       writer.on("error", reject);
@@ -194,7 +204,7 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
 
     if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "📥 Telegram pleyeriga yuborilmoqda...").catch(() => {});
 
-    // Telegramga uzatish
+    // Telegramga tayyor jismoniy faylni uzatish
     if (isAudio) {
       await ctx.replyWithAudio(
         { source: finalPath, filename: `${videoTitle}.mp3` },
@@ -208,12 +218,12 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
     }
 
   } catch (err) {
-    console.error("Yuklashda jiddiy xatolik:", err.message);
+    console.error("Yuklash mexanizmi xatosi:", err.message);
     if (waiting) {
-      await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, `❌ <b>Kechirasiz, yuklashda xatolik yuz berdi!</b>\n\nYouTube ushbu videoni yuklash cheklovlarini kuchaytirgan bo'lishi mumkin. Iltimos, boshqa qo'shiq qidirib ko'ring.`, { parse_mode: "HTML" }).catch(() => {});
+      await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, `❌ <b>Kechirasiz, yuklashda xatolik yuz berdi!</b>\n\nYouTube ushbu videoni yuklashga ruxsat bermadi. Iltimos boshqa kalit so'z bilan qidirib ko'ring.`, { parse_mode: "HTML" }).catch(() => {});
     }
   } finally {
-    // Har qanday holatda ham diskda o'lik fayl qolib ketmasligini ta'minlash
+    // Diskda kesh fayl qolib ketmasligi uchun tozalash
     if (fs.existsSync(finalPath)) fs.unlinkSync(finalPath);
     if (waiting) await ctx.deleteMessage(waiting.message_id).catch(() => {});
   }
@@ -263,21 +273,31 @@ bot.action(/fmt_(v|m)_(.+)/, async (ctx) => {
   } catch (e) {}
 });
 
+// QIDIRUV TUGMASI BOSILGANDA NOMNI TO'LIQ FORMATLOVCHI METOD
 bot.action(/dl_(m|v)_(.+)/, async (ctx) => {
   try {
     await ctx.answerCbQuery().catch(() => {});
     const isAudio = ctx.match[1] === "m";
-    const videoId = ctx.match[2]; 
+    const trackKey = ctx.match[2]; 
     
-    const fullYoutubeUrl = `https://www.youtube.com/watch?v=${videoId}`;
-    await downloadAndSend(ctx, fullYoutubeUrl, isAudio);
+    // Seans xotirasidan qo'shiqning aniq ma'lumotlarini o'qiymiz
+    const trackData = ctx.session[trackKey];
+    
+    if (!trackData) {
+      return ctx.reply("❌ Qidiruv muddati o'tgan. Iltimos, musiqani qaytadan qidirib ko'ring.");
+    }
+    
+    const fullYoutubeUrl = `https://www.youtube.com/watch?v=${trackData.id}`;
+    
+    // Aniq nom va ijrochini yuklash tizimiga uzatamiz
+    await downloadAndSend(ctx, fullYoutubeUrl, isAudio, trackData.title, trackData.performer);
   } catch (e) {
     console.error("Tugma bosish xatosi:", e.message);
   }
 });
 
 bot.launch({ dropPendingUpdates: true })
-  .then(() => console.log("🔥 DIRECT YTDL ENGINE ONLINE!"))
+  .then(() => console.log("🔥 DIRECT YTDL PLATFORM ONLINE!"))
   .catch((err) => console.error(err.message));
 
 process.once("SIGINT", () => bot.stop("SIGINT"));
