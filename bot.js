@@ -1,5 +1,6 @@
 require("dotenv").config();
-const { Telegraf, Markup, session } = require("telegraf");
+const { Telegraf, Markup } = require("telegraf");
+const { Session } = require("telegraf-session-mongoose"); // MongoDB session
 const express = require("express");
 const mongoose = require("mongoose");
 const crypto = require("crypto");
@@ -13,13 +14,30 @@ const ADMIN_ID = process.env.ADMIN_ID ? parseInt(process.env.ADMIN_ID) : 8125836
 
 // ================= EXPRESS WEB SERVER =================
 const app = express();
-app.get("/", (req, res) => res.send("🟢 High-Speed Internal Engine Active"));
+app.get("/", (req, res) => res.send("🟢 High-Speed Internal Engine Active and Awake"));
 const PORT = process.env.PORT || 8080;
-app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+  // SERVERNI UYG'OQ USHLASH TIZIMI (Self-Ping)
+  // O'z serveringiz manzilini (masalan: https://musiqabot.onrender.com) bilsangiz, pastga yozib qo'yishingiz ham mumkin
+  setInterval(async () => {
+    try {
+      const axios = require("axios");
+      // Agar render foydalansangiz, RENDER_EXTERNAL_URL muhit o'zgaruvchisi avtomatik ishlaydi
+      const serverUrl = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
+      await axios.get(serverUrl);
+      console.log("⏰ Serverga ping yuborildi, uyqu rejimi bloklandi.");
+    } catch (e) {
+      console.log("⏰ Ping xatosi (muammo yo'q):", e.message);
+    }
+  }, 10 * 60 * 1000); // Har 10 daqiqada ping otadi
+});
 
-// ================= MONGOOSE DATABASE =================
+// ================= MONGOOSE DATABASE & SESSION =================
 const MONGO_URI = process.env.MONGO_URI;
-mongoose.connect(MONGO_URI).catch((err) => console.log("🍃 DB Error:", err.message));
+mongoose.connect(MONGO_URI)
+  .then(() => console.log("🍃 MongoDB muvaffaqiyatli ulandi!"))
+  .catch((err) => console.log("🍃 DB Error:", err.message));
 
 const User = mongoose.model("User", new mongoose.Schema({
   telegramId: { type: Number, unique: true, required: true },
@@ -30,8 +48,13 @@ const User = mongoose.model("User", new mongoose.Schema({
 
 // ================= BOT INITIALIZATION =================
 const bot = new Telegraf(process.env.BOT_TOKEN);
-bot.use(session());
-bot.use((ctx, next) => { ctx.session ||= {}; return next(); });
+
+// Seanslarni xotirada emas, MongoDB ichida saqlash mexanizmi
+bot.use(Session({
+  mongodbUri: MONGO_URI,
+  collectionName: "telegraf_sessions",
+  ttl: 3600 // 1 soat davomida saqlanadi
+}));
 
 const mainMenu = Markup.keyboard([
   ["🎵 Musiqa qidirish", "🎬 Kino (Treyler) qidirish"]
@@ -140,6 +163,8 @@ async function searchYouTubeLive(ctx, query) {
       const cleanAuthor = (video.author?.name || "YouTube").replace(/[<>:"/\\|?*]/g, "").trim();
       
       const trackKey = crypto.randomUUID().slice(0, 8);
+      
+      // Endi bu ma'lumot server o'chsa ham MongoDB ichida toshdek qattiq turadi!
       ctx.session[trackKey] = {
         id: video.videoId,
         title: cleanTitle,
@@ -160,19 +185,16 @@ async function searchYouTubeLive(ctx, query) {
   }
 }
 
-// ================= INTERNAL YT-DLP CORE DOWNLOAD ENGINE (API-SIZ VARIANT) =================
+// ================= INTERNAL YT-DLP CORE DOWNLOAD ENGINE =================
 async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = "", customPerformer = "") {
-  const waiting = await ctx.reply("⚡ Server ichida yuklash boshlandi. Biroz kuting...").catch(() => null);
+  const waiting = await ctx.reply("⚡ Server yuklashni boshladi...").catch(() => null);
   
   let videoTitle = customTitle;
   let performerName = customPerformer;
   const fileId = crypto.randomUUID().slice(0, 8);
-  
-  // Vaqtinchalik fayllar uchun yo'llar
   const outputPattern = path.join(__dirname, `media_${fileId}.%(ext)s`);
   const finalPath = path.join(__dirname, `media_${fileId}.${isAudio ? 'mp3' : 'mp4'}`);
 
-  // Agar havola orqali kelgan bo'lsa va nomi yo'q bo'lsa, qidirib aniqlaymiz
   if (!videoTitle && (targetUrl.includes("youtube.com") || targetUrl.includes("youtu.be"))) {
     try {
       const searchResults = await ytSearch(targetUrl);
@@ -187,16 +209,14 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
   if (!performerName) performerName = "Audio Downloader";
 
   try {
-    // yt-dlp sozlamalari (Tashqi API mutlaqo ishlatilmaydi, hammasi serverni o'zida bajariladi)
     const dlOptions = isAudio ? {
       extractAudio: true,
       audioFormat: 'mp3',
-      audioQuality: '0', // Eng yuqori sifat
+      audioQuality: '0',
       ffmpegLocation: ffmpegStatic,
       output: outputPattern,
       noCheckCertificates: true,
-      noWarnings: true,
-      preferFreeFormats: true
+      noWarnings: true
     } : {
       format: 'mp4',
       ffmpegLocation: ffmpegStatic,
@@ -205,14 +225,12 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
       noWarnings: true
     };
 
-    if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "📥 Kontent yuklab olinmoqda va formatlanmoqda...").catch(() => {});
+    if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "📥 Kontent qayta ishlanmoqda...").catch(() => {});
 
-    // yt-dlp ni ishga tushiramiz
     await youtubedl(targetUrl, dlOptions);
 
-    if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "📤 Telegram pleyeriga yuborilmoqda...").catch(() => {});
+    if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "📤 Telegramga uzatilmoqda...").catch(() => {});
 
-    // Telegramga jismoniy faylni yuborish
     if (isAudio) {
       await ctx.replyWithAudio(
         { source: finalPath, filename: `${videoTitle}.mp3` },
@@ -228,13 +246,11 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
   } catch (err) {
     console.error("Yt-dlp yuklash xatosi:", err.message);
     if (waiting) {
-      await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, `❌ <b>Yuklab olish imkoni bo'lmadi!</b>\n\nHavola noto'g'ri yoki ushbu kontent yosh chekloviga ega yoki muallif tomonidan bloklangan.`, { parse_mode: "HTML" }).catch(() => {});
+      await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, `❌ <b>Yuklab bo'lmadi.</b>\n\nHavola eskirgan yoki xavfsizlik cheklovi mavjud.`, { parse_mode: "HTML" }).catch(() => {});
     }
   } finally {
-    // Kesh va vaqtinchalik o'lik fayllarni diskdan o'chirish
     try {
       if (fs.existsSync(finalPath)) fs.unlinkSync(finalPath);
-      // Ba'zida boshqa formatda qolib ketgan fayllar bo'lsa ham tozalaydi
       const origMp4 = path.join(__dirname, `media_${fileId}.mp4`);
       if (fs.existsSync(origMp4)) fs.unlinkSync(origMp4);
     } catch (e) {}
@@ -292,9 +308,10 @@ bot.action(/dl_(m|v)_(.+)/, async (ctx) => {
     const isAudio = ctx.match[1] === "m";
     const trackKey = ctx.match[2]; 
     
+    // Ma'lumot MongoDB bazasidan olinadi, shuning uchun xatolik ehtimoli 0%
     const trackData = ctx.session[trackKey];
     if (!trackData) {
-      return ctx.reply("❌ Qidiruv seansi muddati tugagan. Iltimos, qaytadan yozib qidiring.");
+      return ctx.reply("❌ Qidiruv muddati tugagan. Qaytadan qidirib ko'ring.");
     }
 
     const fullYoutubeUrl = `https://www.youtube.com/watch?v=${trackData.id}`;
@@ -305,7 +322,7 @@ bot.action(/dl_(m|v)_(.+)/, async (ctx) => {
 });
 
 bot.launch({ dropPendingUpdates: true })
-  .then(() => console.log("🔥 INTERNAL YT-DLP ENGINE ONLINE!"))
+  .then(() => console.log("🔥 PERSISTENT MONGO ENGINE ONLINE & ANTI-SLEEP ACTIVE!"))
   .catch((err) => console.error(err.message));
 
 process.once("SIGINT", () => bot.stop("SIGINT"));

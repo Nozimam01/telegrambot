@@ -19,6 +19,7 @@
     "sqlite3": "^5.1.7",
     "telegraf": "^4.16.3",
     "telegraf-session-local": "^2.1.1",
+    "telegraf-session-mongoose": "^2.0.6",
     "youtube-dl-exec": "^3.1.9",
     "youtube-search-api": "^1.2.2",
     "yt-search": "^2.13.1"
