@@ -11,7 +11,6 @@ const ytSearch = require("yt-search");
 const youtubedl = require("youtube-dl-exec");
 const ffmpegStatic = require("ffmpeg-static");
 
-// Config muhitini o'qish (Siz taqdim etgan sozlamalar bo'yicha)
 const ADMIN_ID = process.env.ADMIN_ID ? parseInt(process.env.ADMIN_ID) : 8125836834; 
 const MONGO_URI = process.env.MONGO_URI;
 
@@ -20,62 +19,14 @@ if (!MONGO_URI) {
   process.exit(1);
 }
 
-// ================= AKKORATNIY COOKIE PARSER ENGINE =================
-const cookiesPath = path.join(__dirname, "youtube-cookies.txt");
-if (process.env.YT_COOKIES_STRING) {
-  try {
-    const rawStr = process.env.YT_COOKIES_STRING;
-    const targetKeys = ["HSID", "LOGIN_INFO", "PREF", "SAPISID", "SID", "SIDCC", "SSID", "VISITOR_INFO1_LIVE", "VISITOR_PRIVACY_METADATA", "YSC"];
-    
-    let netscapeLines = [
-      "# Netscape HTTP Cookie File",
-      "# http://curl.haxx.se/rfc/cookie_spec.html",
-      "# This is a generated file! Do not edit.",
-      ""
-    ];
-
-    // Har bir kalit so'zni matn ichidan qidirib qiymatini tozalab olish
-    targetKeys.forEach(key => {
-      if (rawStr.includes(key)) {
-        const parts = rawStr.split(key);
-        if (parts.length > 1) {
-          // Kalitdan keyingi birinchi blokni ajratamiz
-          const cleanPart = parts[1].trim().split(/\s+/);
-          let value = cleanPart[0];
-          
-          if (value) {
-            const isSecure = (key === "LOGIN_INFO" || key === "SAPISID" || key === "SIDCC") ? "TRUE" : "FALSE";
-            netscapeLines.push(`.youtube.com\tTRUE\t/\t${isSecure}\t0\t${key}\t${value}`);
-            
-            // Murakkab YouTube bot deteksiyalarini aldash uchun qo'shimcha xavfsiz tokenlarni ko'paytiramiz
-            if (key === "SID") {
-              netscapeLines.push(`.youtube.com\tTRUE\t/\tTRUE\t0\t__Secure-3PSID\t${value}`);
-              netscapeLines.push(`.youtube.com\tTRUE\t/\tTRUE\t0\t__Secure-1PSID\t${value}`);
-            }
-            if (key === "SAPISID") {
-              netscapeLines.push(`.youtube.com\tTRUE\t/\tTRUE\t0\t__Secure-3PAPISID\t${value}`);
-              netscapeLines.push(`.youtube.com\tTRUE\t/\tTRUE\t0\t__Secure-1PAPISID\t${value}`);
-            }
-          }
-        }
-      }
-    });
-
-    fs.writeFileSync(cookiesPath, netscapeLines.join("\n"), "utf-8");
-    console.log("✅ YouTube Netscape Cookie fayli matndan muvaffaqiyatli tiklandi va yaratildi!");
-  } catch (err) {
-    console.error("❌ Cookie parser xatoligi:", err.message);
-  }
-}
-
 // ================= EXPRESS WEB SERVER =================
 const app = express();
 app.get("/", (req, res) => res.send("🟢 Engine Active and Awake"));
-const PORT = process.env.PORT || 4000; // Port 4000 ga moslandi
+const PORT = process.env.PORT || 4000; 
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   
-  // Anti-Sleep (Uyg'oq ushlash tizimi)
+  // SERVERNI UYG'OQ USHLASH TIZIMI (Self-Ping)
   setInterval(async () => {
     try {
       const axios = require("axios");
@@ -102,6 +53,7 @@ const User = mongoose.model("User", new mongoose.Schema({
 
 // ================= BOT INITIALIZATION =================
 const bot = new Telegraf(process.env.BOT_TOKEN);
+
 const client = new MongoClient(MONGO_URI);
 const db = client.db(); 
 
@@ -245,6 +197,7 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
   const outputPattern = path.join(__dirname, `media_${fileId}.%(ext)s`);
   const finalPath = path.join(__dirname, `media_${fileId}.${isAudio ? 'mp3' : 'mp4'}`);
 
+  const cookiesPath = path.join(__dirname, "youtube-cookies.txt");
   const hasCookies = fs.existsSync(cookiesPath);
 
   if (!videoTitle && (targetUrl.includes("youtube.com") || targetUrl.includes("youtu.be"))) {
@@ -261,6 +214,7 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
   if (!performerName) performerName = "Audio Downloader";
 
   try {
+    // Eskirgan parametr mutlaqo olib tashlandi
     const dlOptions = isAudio ? {
       extractAudio: true,
       audioFormat: 'mp3',
@@ -269,7 +223,6 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
       output: outputPattern,
       noCheckCertificates: true,
       noWarnings: true,
-      youtubeSkipDashManifest: true,
       ...(hasCookies && { cookies: cookiesPath }) 
     } : {
       format: 'mp4',
@@ -277,7 +230,6 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
       output: outputPattern,
       noCheckCertificates: true,
       noWarnings: true,
-      youtubeSkipDashManifest: true,
       ...(hasCookies && { cookies: cookiesPath }) 
     };
 
@@ -302,7 +254,7 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
   } catch (err) {
     console.error("Yt-dlp yuklash xatosi:", err.message);
     if (waiting) {
-      await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, `❌ <b>Yuklab bo'lmadi.</b>\n\nYouTube bot himoyasi faollashdi. Serverga yangi o'zgaruvchi yuklanishi kerak.`, { parse_mode: "HTML" }).catch(() => {});
+      await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, `❌ <b>Yuklab bo'lmadi.</b>\n\nYouTube bot himoyasi faollashdi. Serverga to'g'ri cookie fayli yuklanishi kerak.`, { parse_mode: "HTML" }).catch(() => {});
     }
   } finally {
     try {
