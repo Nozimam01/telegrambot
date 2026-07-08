@@ -1,6 +1,7 @@
 require("dotenv").config();
 const { Telegraf, Markup } = require("telegraf");
-const MongoSession = require("telegraf-session-mongoose");
+const { session } = require("telegraf-session-mongodb"); // YANGI VA BARQAROR SEANS
+const { MongoClient } = require("mongodb"); // Rasmiy MongoDB drayver
 const express = require("express");
 const mongoose = require("mongoose");
 const crypto = require("crypto");
@@ -11,16 +12,16 @@ const youtubedl = require("youtube-dl-exec");
 const ffmpegStatic = require("ffmpeg-static");
 
 const ADMIN_ID = process.env.ADMIN_ID ? parseInt(process.env.ADMIN_ID) : 8125836834; 
-const MONGO_URI = process.env.MONGO_URI; // Environment Variables'dan olinadi
+const MONGO_URI = process.env.MONGO_URI;
 
 if (!MONGO_URI) {
-  console.error("❌ XATOLIK: MONGO_URI o'zgaruvchisi topilmadi! Platforma sozlamalarini tekshiring.");
+  console.error("❌ XATOLIK: MONGO_URI topilmadi! Platforma variable qismini tekshiring.");
   process.exit(1);
 }
 
 // ================= EXPRESS WEB SERVER =================
 const app = express();
-app.get("/", (req, res) => res.send("🟢 High-Speed Internal Engine Active and Awake"));
+app.get("/", (req, res) => res.send("🟢 Engine Active and Awake"));
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
@@ -38,10 +39,10 @@ app.listen(PORT, () => {
   }, 10 * 60 * 1000);
 });
 
-// ================= MONGOOSE DATABASE & SESSION =================
+// ================= MONGOOSE DATABASE =================
 mongoose.connect(MONGO_URI)
-  .then(() => console.log("🍃 MongoDB muvaffaqiyatli ulandi!"))
-  .catch((err) => console.log("🍃 DB Error:", err.message));
+  .then(() => console.log("🍃 Mongoose ulandi!"))
+  .catch((err) => console.log("🍃 Mongoose Error:", err.message));
 
 const User = mongoose.model("User", new mongoose.Schema({
   telegramId: { type: Number, unique: true, required: true },
@@ -53,12 +54,13 @@ const User = mongoose.model("User", new mongoose.Schema({
 // ================= BOT INITIALIZATION =================
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
-// Seanslarni MongoDB ichida xavfsiz va xatosiz ulash
-bot.use(MongoSession({
-  mongodbUri: MONGO_URI,
-  collectionName: "telegraf_sessions",
-  ttl: 3600
-}));
+// Seanslarni MongoDBga ulash uchun asosiy ulanishni ochamiz
+const client = new MongoClient(MONGO_URI);
+const db = client.db(); // Default bazani tanlaydi
+const sessionsCollection = db.collection("telegraf_sessions");
+
+// Botga seansni integratsiya qilish (Mutlaqo xatosiz sinf)
+bot.use(session(sessionsCollection));
 
 const mainMenu = Markup.keyboard([
   ["🎵 Musiqa qidirish", "🎬 Kino (Treyler) qidirish"]
@@ -76,7 +78,7 @@ function escapeHTML(text) {
 
 // ================= COMMANDS =================
 bot.start(async (ctx) => {
-  ctx.session = {};
+  ctx.session = {}; // Seansni tozalash
   try {
     await User.findOneAndUpdate(
       { telegramId: ctx.from.id },
@@ -263,6 +265,9 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
 
 // ================= SMART CONTROLLER =================
 bot.on("message", async (ctx) => {
+  // Seansni xavfsiz shakllantirish
+  ctx.session = ctx.session || {};
+
   if (ctx.from.id === ADMIN_ID && ctx.session.adminMode === "send_post") {
     ctx.session.adminMode = null;
     const users = await User.find();
@@ -299,6 +304,7 @@ bot.on("message", async (ctx) => {
 bot.action(/fmt_(v|m)_(.+)/, async (ctx) => {
   try {
     await ctx.answerCbQuery().catch(() => {});
+    ctx.session = ctx.session || {};
     const url = ctx.session[ctx.match[2]];
     if (!url) return ctx.reply("❌ Seans muddati tugagan, iltimos havolani qayta yuboring.");
     await downloadAndSend(ctx, url, ctx.match[1] === "m");
@@ -308,6 +314,7 @@ bot.action(/fmt_(v|m)_(.+)/, async (ctx) => {
 bot.action(/dl_(m|v)_(.+)/, async (ctx) => {
   try {
     await ctx.answerCbQuery().catch(() => {});
+    ctx.session = ctx.session || {};
     const isAudio = ctx.match[1] === "m";
     const trackKey = ctx.match[2]; 
     
@@ -323,9 +330,12 @@ bot.action(/dl_(m|v)_(.+)/, async (ctx) => {
   }
 });
 
-bot.launch({ dropPendingUpdates: true })
-  .then(() => console.log("🔥 PERSISTENT MONGO ENGINE ONLINE & ANTI-SLEEP ACTIVE!"))
-  .catch((err) => console.error(err.message));
+// MongoDB mijozini ulab botni ishga tushiramiz
+client.connect().then(() => {
+  bot.launch({ dropPendingUpdates: true })
+    .then(() => console.log("🔥 PERSISTENT MONGO ENGINE ONLINE & ANTI-SLEEP ACTIVE!"))
+    .catch((err) => console.error(err.message));
+}).catch(err => console.error("MongoDB ulanish xatosi:", err));
 
 process.once("SIGINT", () => bot.stop("SIGINT"));
 process.once("SIGTERM", () => bot.stop("SIGTERM"));
