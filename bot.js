@@ -2,17 +2,18 @@ require("dotenv").config();
 const { Telegraf, Markup, session } = require("telegraf");
 const express = require("express");
 const mongoose = require("mongoose");
-const axios = require("axios");
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const ytSearch = require("yt-search");
+const youtubedl = require("youtube-dl-exec");
+const ffmpegStatic = require("ffmpeg-static");
 
 const ADMIN_ID = process.env.ADMIN_ID ? parseInt(process.env.ADMIN_ID) : 8125836834; 
 
 // ================= EXPRESS WEB SERVER =================
 const app = express();
-app.get("/", (req, res) => res.send("🟢 High-Speed Bot Engine Active"));
+app.get("/", (req, res) => res.send("🟢 High-Speed Internal Engine Active"));
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
 
@@ -119,7 +120,7 @@ bot.hears("🎬 Kino (Treyler) qidirish", (ctx) => {
   ctx.reply("🎬 Kino yoki treyler nomini yozing:");
 });
 
-// ================= YOUTUBE SEARCH TIZIMI (SESSION'SIZ ISHLOVCHI) =================
+// ================= YOUTUBE QIDIRUV TIZIMI =================
 async function searchYouTubeLive(ctx, query) {
   const waiting = await ctx.reply("🔍 Qidirilmoqda...").catch(() => null);
   try {
@@ -135,21 +136,18 @@ async function searchYouTubeLive(ctx, query) {
     const buttons = [];
 
     videos.forEach((video) => {
-      // Simvollarni tozalash (Telegram callback_data limiti uchun xavfsiz holatga keltirish)
       const cleanTitle = video.title.replace(/[<>:"/\\|?*]/g, "").trim();
       const cleanAuthor = (video.author?.name || "YouTube").replace(/[<>:"/\\|?*]/g, "").trim();
       
-      const displayTitle = cleanTitle.length > 35 ? cleanTitle.slice(0, 32) + "..." : cleanTitle;
-      const emoji = isMusic ? "🎵" : "🎬";
-      
-      // Callback xotirasini tejash va session yo'qolib qolishidan himoyalanish uchun ma'lumotni qisqartirib tugmaga joylaymiz
-      // Maksimal 64 bayt limiti borligi uchun faqat ID'ni uzatamiz va seans xotirasiga ham dublyaj qilamiz
       const trackKey = crypto.randomUUID().slice(0, 8);
       ctx.session[trackKey] = {
         id: video.videoId,
         title: cleanTitle,
         performer: cleanAuthor
       };
+
+      const displayTitle = cleanTitle.length > 35 ? cleanTitle.slice(0, 32) + "..." : cleanTitle;
+      const emoji = isMusic ? "🎵" : "🎬";
       
       buttons.push([Markup.button.callback(`${emoji} ${displayTitle}`, `dl_${isMusic ? 'm' : 'v'}_${trackKey}`)]);
     });
@@ -162,21 +160,22 @@ async function searchYouTubeLive(ctx, query) {
   }
 }
 
-// ================= HIGH-SPEED RELIABLE EXTERNAL STREAM API DOWNLOAD ENGINE =================
+// ================= INTERNAL YT-DLP CORE DOWNLOAD ENGINE (API-SIZ VARIANT) =================
 async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = "", customPerformer = "") {
-  const waiting = await ctx.reply("⏳ Fayl tahlil qilinmoqda va yuklanmoqda...").catch(() => null);
-  let url = targetUrl;
+  const waiting = await ctx.reply("⚡ Server ichida yuklash boshlandi. Biroz kuting...").catch(() => null);
   
   let videoTitle = customTitle;
   let performerName = customPerformer;
   const fileId = crypto.randomUUID().slice(0, 8);
-  const ext = isAudio ? "mp3" : "mp4";
-  const finalPath = path.join(__dirname, `media_${fileId}.${ext}`);
+  
+  // Vaqtinchalik fayllar uchun yo'llar
+  const outputPattern = path.join(__dirname, `media_${fileId}.%(ext)s`);
+  const finalPath = path.join(__dirname, `media_${fileId}.${isAudio ? 'mp3' : 'mp4'}`);
 
-  // Agar havola orqali kelgan bo'lsa va nomi yo'q bo'lsa, avval qidirib nomini aniqlaymiz
-  if (!videoTitle && (url.includes("youtube.com") || url.includes("youtu.be"))) {
+  // Agar havola orqali kelgan bo'lsa va nomi yo'q bo'lsa, qidirib aniqlaymiz
+  if (!videoTitle && (targetUrl.includes("youtube.com") || targetUrl.includes("youtu.be"))) {
     try {
-      const searchResults = await ytSearch(url);
+      const searchResults = await ytSearch(targetUrl);
       if (searchResults && searchResults.title) {
         videoTitle = searchResults.title.replace(/[<>:"/\\|?*]/g, "").trim();
         performerName = searchResults.author?.name || "YouTube Player";
@@ -184,130 +183,62 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
     } catch (e) {}
   }
 
-  if (!videoTitle) videoTitle = url.includes("tiktok.com") ? "TikTok Media" : url.includes("instagram.com") ? "Instagram Reel" : "Requested Track";
+  if (!videoTitle) videoTitle = targetUrl.includes("tiktok.com") ? "TikTok Media" : targetUrl.includes("instagram.com") ? "Instagram Reel" : "Requested Track";
   if (!performerName) performerName = "Audio Downloader";
 
   try {
-    let mediaUrl = null;
+    // yt-dlp sozlamalari (Tashqi API mutlaqo ishlatilmaydi, hammasi serverni o'zida bajariladi)
+    const dlOptions = isAudio ? {
+      extractAudio: true,
+      audioFormat: 'mp3',
+      audioQuality: '0', // Eng yuqori sifat
+      ffmpegLocation: ffmpegStatic,
+      output: outputPattern,
+      noCheckCertificates: true,
+      noWarnings: true,
+      preferFreeFormats: true
+    } : {
+      format: 'mp4',
+      ffmpegLocation: ffmpegStatic,
+      output: outputPattern,
+      noCheckCertificates: true,
+      noWarnings: true
+    };
 
-    // 🚀 1-URINISH: CLOUD VREDEN ULTRA BYPASS API (Hozirgi kunda 403 bermaydigan eng ishonchlisi)
-    try {
-      const res = await axios.get(`https://api.vreden.my.id/api/download/allinone?url=${encodeURIComponent(url)}`, { timeout: 10000 });
-      if (res.data && res.data.status === 200) {
-        const result = res.data.result;
-        mediaUrl = isAudio ? (result.audio || result.url) : (result.video || result.url);
-      }
-    } catch (e) {
-      console.log("Vreden API xatosi, zaxira RapidAPI tizimiga o'tilmoqda...");
+    if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "📥 Kontent yuklab olinmoqda va formatlanmoqda...").catch(() => {});
+
+    // yt-dlp ni ishga tushiramiz
+    await youtubedl(targetUrl, dlOptions);
+
+    if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "📤 Telegram pleyeriga yuborilmoqda...").catch(() => {});
+
+    // Telegramga jismoniy faylni yuborish
+    if (isAudio) {
+      await ctx.replyWithAudio(
+        { source: finalPath, filename: `${videoTitle}.mp3` },
+        { title: videoTitle, performer: performerName }
+      );
+    } else {
+      await ctx.replyWithVideo(
+        { source: finalPath },
+        { caption: `🎬 <b>${videoTitle}</b>\n\n📥 @${ctx.botInfo.username} orqali yuklandi`, parse_mode: "HTML" }
+      );
     }
 
-    // 🚀 2-URINISH: PREMIUM RAPIDAPI
-    if (!mediaUrl) {
-      try {
-        const responseApi = await axios.post(
-          'https://social-download-all-in-one.p.rapidapi.com/v1/social/autolink',
-          { url: url },
-          {
-            headers: {
-              'Content-Type': 'application/json',
-              'x-rapidapi-host': 'social-download-all-in-one.p.rapidapi.com',
-              'x-rapidapi-key': 'd8d01b8fc7msh4b21e81a8a871bcp1307d7jsnd76c8175e018'
-            },
-            timeout: 10000
-          }
-        );
-        if (responseApi.data) {
-          const apiData = responseApi.data;
-          if (isAudio) {
-            mediaUrl = apiData.audio || (apiData.links ? apiData.links.find(l => l.type === 'audio')?.url : null);
-          }
-          if (!mediaUrl) {
-            mediaUrl = apiData.video || (apiData.medias && apiData.medias[0] ? apiData.medias[0].url : apiData.url);
-          }
-        }
-      } catch (apiErr) {
-        console.log("RapidAPI ham muammoli, uchinchi zaxira Cobalt'ga o'tildi...");
-      }
-    }
-
-    // 🚀 3-URINISH: MULTI-COBALT SERVERS POOL
-    if (!mediaUrl && (url.includes("youtube.com") || url.includes("youtu.be"))) {
-      const cobaltServers = [
-        'https://api.cobalt.tools/api/json', 
-        'https://cobalt.samet.live/api/json',
-        'https://co.wuk.sh/api/json'
-      ];
-      for (const server of cobaltServers) {
-        try {
-          const res = await axios.post(server, {
-            url: url,
-            downloadMode: isAudio ? 'audio' : 'video',
-            audioFormat: 'mp3'
-          }, { headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' }, timeout: 6000 });
-          
-          if (res.data && res.data.url) {
-            mediaUrl = res.data.url;
-            break;
-          }
-        } catch (e) {}
-      }
-    }
-
-    // ================= DISKKA STREAM SIFATIDA BARQAROR YOZISH TIZIMI =================
-    if (mediaUrl) {
-      if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "📥 Fayl Telegram tizimiga uzatilmoqda...").catch(() => {});
-      
-      const writer = fs.createWriteStream(finalPath);
-      const streamResponse = await axios({
-        url: mediaUrl,
-        method: 'GET',
-        responseType: 'stream',
-        headers: { 
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
-        },
-        timeout: 40000
-      });
-
-      streamResponse.data.pipe(writer);
-
-      await new Promise((resolve, reject) => {
-        writer.on('finish', resolve);
-        writer.on('error', reject);
-      });
-
-      // Telegramga yuborish
-      if (isAudio) {
-        await ctx.replyWithAudio(
-          { source: finalPath, filename: `${videoTitle}.mp3` },
-          { title: videoTitle, performer: performerName }
-        );
-      } else {
-        await ctx.replyWithVideo(
-          { source: finalPath },
-          { caption: `🎬 <b>${videoTitle}</b>\n\n📥 @${ctx.botInfo.username} orqali yuklandi`, parse_mode: "HTML" }
-        );
-      }
-
-      // Keshni tozalash
-      if (fs.existsSync(finalPath)) fs.unlinkSync(finalPath);
-      if (waiting) await ctx.deleteMessage(waiting.message_id).catch(() => {});
-      return;
-    }
   } catch (err) {
-    console.error("Global Engine Xatosi:", err.message);
-  }
-
-  // Agar barcha uronishlar muvaffaqiyatsiz tugasa diskni tozalaymiz
-  if (fs.existsSync(finalPath)) fs.unlinkSync(finalPath);
-
-  if (waiting) {
-    await ctx.telegram.editMessageText(
-      ctx.chat.id, 
-      waiting.message_id, 
-      null, 
-      `❌ <b>Ushbu kontentni yuklab bo'lmadi!</b>\n\nYouTube/Instagram xavfsizlik filtri so'rovni butunlay rad etdi yoki havola yopiq (privat) hisobga tegishli.\n\n💡 Iltimos, bir ozdan so'ng boshqa havola yoki kalit so'z bilan qayta urinib ko'ring.`, 
-      { parse_mode: "HTML" }
-    ).catch(() => {});
+    console.error("Yt-dlp yuklash xatosi:", err.message);
+    if (waiting) {
+      await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, `❌ <b>Yuklab olish imkoni bo'lmadi!</b>\n\nHavola noto'g'ri yoki ushbu kontent yosh chekloviga ega yoki muallif tomonidan bloklangan.`, { parse_mode: "HTML" }).catch(() => {});
+    }
+  } finally {
+    // Kesh va vaqtinchalik o'lik fayllarni diskdan o'chirish
+    try {
+      if (fs.existsSync(finalPath)) fs.unlinkSync(finalPath);
+      // Ba'zida boshqa formatda qolib ketgan fayllar bo'lsa ham tozalaydi
+      const origMp4 = path.join(__dirname, `media_${fileId}.mp4`);
+      if (fs.existsSync(origMp4)) fs.unlinkSync(origMp4);
+    } catch (e) {}
+    if (waiting) await ctx.deleteMessage(waiting.message_id).catch(() => {});
   }
 }
 
@@ -355,7 +286,6 @@ bot.action(/fmt_(v|m)_(.+)/, async (ctx) => {
   } catch (e) {}
 });
 
-// QIDIRUVDAN KELGAN TUGMALARNI QABUL QILISH (BARQAROR VARIANT)
 bot.action(/dl_(m|v)_(.+)/, async (ctx) => {
   try {
     await ctx.answerCbQuery().catch(() => {});
@@ -368,8 +298,6 @@ bot.action(/dl_(m|v)_(.+)/, async (ctx) => {
     }
 
     const fullYoutubeUrl = `https://www.youtube.com/watch?v=${trackData.id}`;
-    
-    // Qidiruvdan olingan aniq nomlarni uzatamiz
     await downloadAndSend(ctx, fullYoutubeUrl, isAudio, trackData.title, trackData.performer);
   } catch (e) {
     console.error("Tugma boshqaruv xatosi:", e.message);
@@ -377,7 +305,7 @@ bot.action(/dl_(m|v)_(.+)/, async (ctx) => {
 });
 
 bot.launch({ dropPendingUpdates: true })
-  .then(() => console.log("🔥 ULTIMATE FORBIDDEN BYPASS ENGINE ONLINE!"))
+  .then(() => console.log("🔥 INTERNAL YT-DLP ENGINE ONLINE!"))
   .catch((err) => console.error(err.message));
 
 process.once("SIGINT", () => bot.stop("SIGINT"));
