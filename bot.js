@@ -1,7 +1,7 @@
 require("dotenv").config();
 const { Telegraf, Markup } = require("telegraf");
-const { session } = require("telegraf-session-mongodb"); // YANGI VA BARQAROR SEANS
-const { MongoClient } = require("mongodb"); // Rasmiy MongoDB drayver
+const { session } = require("telegraf-session-mongodb"); 
+const { MongoClient } = require("mongodb"); 
 const express = require("express");
 const mongoose = require("mongoose");
 const crypto = require("crypto");
@@ -54,13 +54,12 @@ const User = mongoose.model("User", new mongoose.Schema({
 // ================= BOT INITIALIZATION =================
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
-// Seanslarni MongoDBga ulash uchun asosiy ulanishni ochamiz
+// Seanslarni ulash tizimi (TUZATILDI)
 const client = new MongoClient(MONGO_URI);
-const db = client.db(); // Default bazani tanlaydi
-const sessionsCollection = db.collection("telegraf_sessions");
+const db = client.db(); 
 
-// Botga seansni integratsiya qilish (Mutlaqo xatosiz sinf)
-bot.use(session(sessionsCollection));
+// Birinchi parametr db ob'ekti, ikkinchisi kolleksiya sozlamasi
+bot.use(session(db, { collectionName: "telegraf_sessions" }));
 
 const mainMenu = Markup.keyboard([
   ["🎵 Musiqa qidirish", "🎬 Kino (Treyler) qidirish"]
@@ -78,7 +77,7 @@ function escapeHTML(text) {
 
 // ================= COMMANDS =================
 bot.start(async (ctx) => {
-  ctx.session = {}; // Seansni tozalash
+  ctx.session = {}; 
   try {
     await User.findOneAndUpdate(
       { telegramId: ctx.from.id },
@@ -265,7 +264,6 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
 
 // ================= SMART CONTROLLER =================
 bot.on("message", async (ctx) => {
-  // Seansni xavfsiz shakllantirish
   ctx.session = ctx.session || {};
 
   if (ctx.from.id === ADMIN_ID && ctx.session.adminMode === "send_post") {
@@ -330,7 +328,7 @@ bot.action(/dl_(m|v)_(.+)/, async (ctx) => {
   }
 });
 
-// MongoDB mijozini ulab botni ishga tushiramiz
+// Botni MongoDB mijoziga ulab ishga tushirish
 client.connect().then(() => {
   bot.launch({ dropPendingUpdates: true })
     .then(() => console.log("🔥 PERSISTENT MONGO ENGINE ONLINE & ANTI-SLEEP ACTIVE!"))
