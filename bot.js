@@ -19,20 +19,20 @@ if (!MONGO_URI) {
   process.exit(1);
 }
 
-// ================= EXPRESS WEB SERVER =================
+// ================= EXPRESS WEB SERVER (ANTI-SLEEP) =================
 const app = express();
 app.get("/", (req, res) => res.send("🟢 Engine Active and Awake"));
 const PORT = process.env.PORT || 4000; 
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   
-  // SERVERNI UYG'OQ USHLASH TIZIMI (Self-Ping)
+  // Render o'z-o'zidan uxlab qolmasligi uchun tashqi va ichki so'rov generatori
   setInterval(async () => {
     try {
       const axios = require("axios");
       const serverUrl = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
       await axios.get(serverUrl);
-      console.log("⏰ Serverga ping yuborildi, uyqu rejimi bloklandi.");
+      console.log("⏰ Server uyg'oq holatda saqlanmoqda.");
     } catch (e) {
       console.log("⏰ Ping xatosi:", e.message);
     }
@@ -53,7 +53,6 @@ const User = mongoose.model("User", new mongoose.Schema({
 
 // ================= BOT INITIALIZATION =================
 const bot = new Telegraf(process.env.BOT_TOKEN);
-
 const client = new MongoClient(MONGO_URI);
 const db = client.db(); 
 
@@ -187,7 +186,7 @@ async function searchYouTubeLive(ctx, query) {
   }
 }
 
-// ================= INTERNAL YT-DLP CORE DOWNLOAD ENGINE =================
+// ================= KUCHAYTIRILGAN MNOGO-FUNKSIONAL YUKLASH ENGINE =================
 async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = "", customPerformer = "") {
   const waiting = await ctx.reply("⚡ Server yuklashni boshladi...").catch(() => null);
   
@@ -210,11 +209,11 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
     } catch (e) {}
   }
 
-  if (!videoTitle) videoTitle = targetUrl.includes("tiktok.com") ? "TikTok Media" : targetUrl.includes("instagram.com") ? "Instagram Reel" : "Requested Track";
-  if (!performerName) performerName = "Audio Downloader";
+  if (!videoTitle) videoTitle = "Requested_Track";
+  if (!performerName) performerName = "Downloader";
 
   try {
-    // Eskirgan parametr mutlaqo olib tashlandi
+    // ⚠️ ENG MUHIM QISM: YouTube "Bot xatoligi" va "8 soatlik o'lim" blokini yechuvchi konfiguratsiya
     const dlOptions = isAudio ? {
       extractAudio: true,
       audioFormat: 'mp3',
@@ -223,21 +222,28 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
       output: outputPattern,
       noCheckCertificates: true,
       noWarnings: true,
+      // YouTube serverlarini aldash va oqim tezligini barqaror saqlash parametrlari
+      extractorArgs: 'youtube:player-client=ios,android,web', 
+      limitRate: '5M',       // Soniyasiga 5MB yuklash cheklovi (Throttling va blokirovkaga qarshi eng mustahkam chora)
+      httpChunkSize: '5M',   // Kinolarni kichik bo'laklar bilan uzatish (Sessiyani o'ldirmaydi)
       ...(hasCookies && { cookies: cookiesPath }) 
     } : {
-      format: 'mp4',
+      format: 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
       ffmpegLocation: ffmpegStatic,
       output: outputPattern,
       noCheckCertificates: true,
       noWarnings: true,
+      extractorArgs: 'youtube:player-client=ios,android,web',
+      limitRate: '5M',
+      httpChunkSize: '5M',
       ...(hasCookies && { cookies: cookiesPath }) 
     };
 
-    if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "📥 Kontent qayta ishlanmoqda...").catch(() => {});
+    if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "📥 Kontent xavfsiz yuklab olinmoqda...").catch(() => {});
 
     await youtubedl(targetUrl, dlOptions);
 
-    if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "📤 Telegramga uzatilmoqda...").catch(() => {});
+    if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "📤 Telegramga yuborilmoqda...").catch(() => {});
 
     if (isAudio) {
       await ctx.replyWithAudio(
@@ -254,7 +260,7 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
   } catch (err) {
     console.error("Yt-dlp yuklash xatosi:", err.message);
     if (waiting) {
-      await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, `❌ <b>Yuklab bo'lmadi.</b>\n\nYouTube bot himoyasi faollashdi. Serverga to'g'ri cookie fayli yuklanishi kerak.`, { parse_mode: "HTML" }).catch(() => {});
+      await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, `⚠️ <b>Yuklab bo'lmadi.</b>\n\nYouTube IP-manzilni chekladi. 5 daqiqadan so'ng qayta urinib ko'ring.`, { parse_mode: "HTML" }).catch(() => {});
     }
   } finally {
     try {
@@ -334,7 +340,7 @@ bot.action(/dl_(m|v)_(.+)/, async (ctx) => {
 
 client.connect().then(() => {
   bot.launch({ dropPendingUpdates: true })
-    .then(() => console.log("🔥 PERSISTENT MONGO ENGINE ONLINE & ANTI-SLEEP ACTIVE!"))
+    .then(() => console.log("🔥 STABLE REINFORCED BYPASS ENGINE RUNNING 24/7!"))
     .catch((err) => console.error(err.message));
 }).catch(err => console.error("MongoDB ulanish xatosi:", err));
 
