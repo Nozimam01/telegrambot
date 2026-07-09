@@ -15,7 +15,7 @@ const MONGO_URI = process.env.MONGO_URI;
 
 // 🔑 SIZNING RAPIDAPI MA'LUMOTLARINGIZ
 const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY || "SIZNING_RAPID_API_KALITINGIZ_SHU_YERGA";
-const RAPIDAPI_HOST = "youtube-media-downloader.p.rapidapi.com"; 
+const RAPIDAPI_HOST = "social-media-video-downloader.p.rapidapi.com"; // All-in-one downloader xosti
 
 if (!MONGO_URI) {
   console.error("❌ XATOLIK: MONGO_URI topilmadi!");
@@ -24,7 +24,7 @@ if (!MONGO_URI) {
 
 // ================= EXPRESS WEB SERVER =================
 const app = express();
-app.get("/", (req, res) => res.send("🟢 RapidAPI Engine Active"));
+app.get("/", (req, res) => res.send("🟢 All-In-One RapidAPI Engine Active"));
 const PORT = process.env.PORT || 4000; 
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
@@ -69,7 +69,7 @@ bot.start(async (ctx) => {
       { upsert: true }
     );
   } catch (e) {}
-  let text = "🚀 Bot ishga tushdi. Havola yuboring yoki nomini yozing:";
+  let text = "🚀 Bot ishga tushdi. Havola (YouTube, Instagram, TikTok) yuboring yoki nomini yozing:";
   if (ctx.from.id === ADMIN_ID) text += "\n\n👨‍💻 Admin panel: /admin";
   ctx.reply(text, mainMenu);
 });
@@ -87,11 +87,10 @@ bot.hears("📊 Statistika", async (ctx) => {
   ctx.reply(`📊 Jami obunachilar: <b>${count} ta</b>`, { parse_mode: "HTML" });
 });
 
-// Admin xabar yuborish rejimini yoqish:
 bot.hears("📢 Xabar yuborish", (ctx) => {
   if (ctx.from.id !== ADMIN_ID) return;
   ctx.session.adminMode = "send_post";
-  ctx.reply("📢 Barcha obunachilarga yuboriladigan xabar matnini kiriting (Rasm, video yoki oddiy matn bo'lishi mumkin):");
+  ctx.reply("📢 Barcha obunachilarga yuboriladigan xabar matnini kiriting:");
 });
 
 bot.hears("🎵 Musiqa qidirish", (ctx) => { ctx.session.mode = "music"; ctx.reply("🎵 Qo'shiq nomini yozing:"); });
@@ -127,18 +126,19 @@ async function searchYouTubeLive(ctx, query) {
   }
 }
 
-// ================= RAPIDAPI DOWNLOAD ENGINE =================
+// ================= UNIVERSAL RAPIDAPI DOWNLOAD ENGINE =================
 async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = "") {
-  const waiting = await ctx.reply("⚡ RapidAPI yuklash tayyorlanmoqda...").catch(() => null);
+  const waiting = await ctx.reply("⚡ Yuklash tayyorlanmoqda...").catch(() => null);
   const fileId = crypto.randomUUID().slice(0, 8);
   const finalPath = path.join(__dirname, `media_${fileId}.${isAudio ? 'mp3' : 'mp4'}`);
 
   try {
-    if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "📥 RapidAPI orqali shifrlangan oqim yuklanmoqda...").catch(() => {});
+    if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "📥 Shifrlangan oqim yuklanmoqda...").catch(() => {});
 
+    // 🚀 Istalgan ijtimoiy tarmoq linkini RapidAPI-ga yuboramiz
     const options = {
       method: 'GET',
-      url: `https://${RAPIDAPI_HOST}/v2/get-video`, 
+      url: `https://${RAPIDAPI_HOST}/v1/get-video`, // API hujjatingizga ko'ra url-ni tekshiring
       params: { url: targetUrl },
       headers: {
         'X-RapidAPI-Key': RAPIDAPI_KEY,
@@ -147,12 +147,19 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
     };
 
     const response = await axios.request(options);
-    const directDownloadUrl = isAudio ? response.data.audio_url : response.data.video_url;
+    
+    // API-dan qaytgan video/audio url manzilini olamiz (Javob formatiga qarab moslang)
+    let directDownloadUrl = isAudio ? response.data.audio_url : response.data.video_url || response.data.url;
 
-    if (!directDownloadUrl) {
-      throw new Error("API yuklash havolasini taqdim etmadi.");
+    if (!directDownloadUrl && response.data.links && response.data.links.length > 0) {
+      directDownloadUrl = response.data.links[0].url; // Muqobil API formatlari uchun
     }
 
+    if (!directDownloadUrl) {
+      throw new Error("API yuklash havolasini taqdim qila olmadi.");
+    }
+
+    // Faylni vaqtinchalik saqlash uchun serverga oqimli yuklaymiz
     const fileStream = fs.createWriteStream(finalPath);
     const downloadBuffer = await axios.get(directDownloadUrl, { responseType: "stream" });
     downloadBuffer.data.pipe(fileStream);
@@ -165,16 +172,23 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
     if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "📤 Telegramga yuborilmoqda...").catch(() => {});
 
     const title = customTitle || "Media_File";
+    
+    // Ijtimoiy tarmoq turini aniqlash (Chiroyli caption uchun)
+    let sourcePlatform = "Ijtimoiy tarmoq";
+    if (targetUrl.includes("instagram.com")) sourcePlatform = "Instagram Reels 📸";
+    if (targetUrl.includes("tiktok.com")) sourcePlatform = "TikTok 🎵";
+    if (targetUrl.includes("youtube.com") || targetUrl.includes("youtu.be")) sourcePlatform = "YouTube 🎬";
+
     if (isAudio) {
       await ctx.replyWithAudio({ source: finalPath, filename: `${title}.mp3` }, { title: title });
     } else {
-      await ctx.replyWithVideo({ source: finalPath }, { caption: `🎬 <b>${title}</b>\n\n📥 RapidAPI Cloud orqali xavfsiz yuklandi.`, parse_mode: "HTML" });
+      await ctx.replyWithVideo({ source: finalPath }, { caption: `📥 <b>${title}</b>\n\nPlatforma: ${sourcePlatform}\nBot: @${ctx.botInfo.username}`, parse_mode: "HTML" });
     }
 
   } catch (err) {
-    console.error("RapidAPI xatosi:", err.message);
+    console.error("RapidAPI yuklash xatosi:", err.message);
     if (waiting) {
-      await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, `❌ <b>Xatolik yuz berdi.</b>\n\nRapidAPI limiti tugagan yoki havola yaroqsiz.`, { parse_mode: "HTML" }).catch(() => {});
+      await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, `❌ <b>Yuklab bo'lmadi.</b>\n\nHavola noto'g'ri, video shaxsiy (private) yoki API limiti tugagan.`, { parse_mode: "HTML" }).catch(() => {});
     }
   } finally {
     try { if (fs.existsSync(finalPath)) fs.unlinkSync(finalPath); } catch (e) {}
@@ -182,25 +196,22 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
   }
 }
 
-// ================= SMART CONTROLLER (XABAR TARQATISH SHU YERDA) =================
+// ================= SMART CONTROLLER =================
 bot.on("message", async (ctx) => {
   ctx.session = ctx.session || {};
 
-  // 📢 JONLI REKLAMA TARQATISH TIZIMI
+  // 📢 ADMIN REKLAMA TIZIMI
   if (ctx.from.id === ADMIN_ID && ctx.session.adminMode === "send_post") {
-    ctx.session.adminMode = null; // Rejimni o'chiramiz
+    ctx.session.adminMode = null; 
     const users = await User.find();
-    ctx.reply(`📢 Reklama bazadagi barcha ${users.length} ta foydalanuvchiga yuborilmoqda...`);
+    ctx.reply(`📢 Reklama ${users.length} ta foydalanuvchiga yuborilmoqda...`);
     
     let success = 0;
     for (const user of users) {
       try {
-        // Har qanday formatdagi postni (Rasm, audio, matn) aynan o'zidek nusxalab tarqatadi
         await ctx.telegram.copyMessage(user.telegramId, ctx.chat.id, ctx.message.message_id);
         success++;
-      } catch (err) {
-        // Agar foydalanuvchi botni bloklagan bo'lsa xatoni o'tkazib yuboradi
-      }
+      } catch (err) {}
     }
     return ctx.reply(`✅ Reklama tarqatildi! Muvaffaqiyatli: ${success}/${users.length}`);
   }
@@ -210,10 +221,18 @@ bot.on("message", async (ctx) => {
   
   if (text === "🎬 Kino (Treyler) qidirish" || text === "🎵 Musiqa qidirish" || text === "📊 Statistika" || text === "📢 Xabar yuborish" || text === "⬅️ Bosh menyu") return;
 
+  // 🔗 URL ANIQLASH (YouTube, Instagram va TikTok-ni birdek ushlaydi)
   if (/https?:\/\//.test(text)) {
     const shortKey = crypto.randomUUID().slice(0, 8);
     ctx.session[shortKey] = text;
-    return ctx.reply("📥 Havola aniqlandi. Formatni tanlang:", Markup.inlineKeyboard([
+
+    // Instagram va TikTok uchun to'g'ridan-to'g'ri videoni o'zini yuklab ketamiz, format tanlatmaymiz
+    if (text.includes("instagram.com") || text.includes("tiktok.com")) {
+      return await downloadAndSend(ctx, text, false, "Social_Video");
+    }
+
+    // YouTube bo'lsa format tanlash tugmasini chiqaramiz
+    return ctx.reply("📥 YouTube havolasi aniqlandi. Formatni tanlang:", Markup.inlineKeyboard([
       [Markup.button.callback("🎥 Video (MP4)", `fmt_v_${shortKey}`), Markup.button.callback("🎵 Audio (MP3)", `fmt_m_${shortKey}`)]
     ]));
   }
@@ -243,5 +262,5 @@ bot.action(/dl_(m|v)_(.+)/, async (ctx) => {
 });
 
 client.connect().then(() => {
-  bot.launch({ dropPendingUpdates: true }).then(() => console.log("🔥 RAPIDAPI ENGINE WITH ADMIN NEWSLETTER SYSTEM ACTIVE!"));
+  bot.launch({ dropPendingUpdates: true }).then(() => console.log("🔥 ALL-IN-ONE SYSTEM ONLINE!"));
 });
