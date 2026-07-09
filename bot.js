@@ -8,30 +8,38 @@ const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const ytSearch = require("yt-search");
-const axios = require("axios"); 
+const axios = require("axios");
 
+// ================= ENVIRONMENT VARIABLES (ENV) =================
+const BOT_TOKEN = process.env.BOT_TOKEN;
 const ADMIN_ID = process.env.ADMIN_ID ? parseInt(process.env.ADMIN_ID) : 8125836834; 
-const MONGO_URI = process.env.MONGO_URI;
+const MONGO_URI = process.env.MONGO_URI; 
+const PORT = process.env.PORT || 4000;
 
-// 🔑 SIZ TAQDIM ETGAN RAPIDAPI MA'LUMOTLARI
-const RAPIDAPI_KEY = "d8d01b8fc7msh4b21e81a8a871bcp1307d7jsnd76c8175e018";
-const RAPIDAPI_HOST = "social-media-video-downloader.p.rapidapi.com"; 
+// Qo'shimcha adminlar (.env dagi ADMIN1, ADMIN2, ADMIN3 lar)
+const EXTRA_ADMINS = [
+  process.env.ADMIN1, 
+  process.env.ADMIN2, 
+  process.env.ADMIN3
+].filter(Boolean); // Bo'sh bo'lmaganlarini saralab oladi
 
-if (!MONGO_URI) {
-  console.error("❌ XATOLIK: MONGO_URI topilmadi! Platformada uni sozlang.");
+// YouTube uchun cookie drayveri (.env dagi YT_COOKIES_STRING)
+const YT_COOKIES = process.env.YT_COOKIES_STRING || "";
+
+if (!BOT_TOKEN || !MONGO_URI) {
+  console.error("❌ XATOLIK: .env faylida BOT_TOKEN yoki MONGO_URI topilmadi!");
   process.exit(1);
 }
 
 // ================= EXPRESS WEB SERVER =================
 const app = express();
-app.get("/", (req, res) => res.send("🟢 All-In-One Hardcoded RapidAPI Engine Active"));
-const PORT = process.env.PORT || 4000; 
-app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+app.get("/", (req, res) => res.send("🟢 Environment Engine Active"));
+app.listen(PORT, () => console.log(`🚀 Server connected to port ${PORT}`));
 
 // ================= MONGOOSE DATABASE =================
 mongoose.connect(MONGO_URI)
-  .then(() => console.log("🍃 Mongoose ulandi!"))
-  .catch((err) => console.log("🍃 Mongoose Error:", err.message));
+  .then(() => console.log("🍃 MongoDB ulandi!"))
+  .catch((err) => console.log("🍃 Database Error:", err.message));
 
 const User = mongoose.model("User", new mongoose.Schema({
   telegramId: { type: Number, unique: true, required: true },
@@ -41,7 +49,7 @@ const User = mongoose.model("User", new mongoose.Schema({
 }));
 
 // ================= BOT INITIALIZATION =================
-const bot = new Telegraf(process.env.BOT_TOKEN, { handlerTimeout: 9000000 });
+const bot = new Telegraf(BOT_TOKEN, { handlerTimeout: 9000000 });
 const client = new MongoClient(MONGO_URI);
 const db = client.db(); 
 bot.use(session(db, { collectionName: "telegraf_sessions" }));
@@ -49,9 +57,10 @@ bot.use(session(db, { collectionName: "telegraf_sessions" }));
 const mainMenu = Markup.keyboard([["🎵 Musiqa qidirish", "🎬 Kino (Treyler) qidirish"]]).resize();
 const adminMenu = Markup.keyboard([["📊 Statistika", "📢 Xabar yuborish"], ["⬅️ Bosh menyu"]]).resize();
 
-function escapeHTML(text) {
-  if (!text) return "";
-  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+function isAdmin(ctx) {
+  if (ctx.from.id === ADMIN_ID) return true;
+  const username = ctx.from.username ? `@${ctx.from.username}` : "";
+  return EXTRA_ADMINS.includes(username) || EXTRA_ADMINS.includes(ctx.from.username);
 }
 
 // ================= COMMANDS =================
@@ -64,26 +73,26 @@ bot.start(async (ctx) => {
       { upsert: true }
     );
   } catch (e) {}
-  let text = "🚀 Bot faol. Istalgan YouTube, Instagram yoki TikTok havolasini yuboring yoki nomini yozib qidiring:";
-  if (ctx.from.id === ADMIN_ID) text += "\n\n👨‍💻 Admin panel: /admin";
+  let text = "🚀 Bot faol. Menga YouTube, Instagram yoki TikTok havolasini yuboring yoki nomini yozing:";
+  if (isAdmin(ctx)) text += "\n\n👨‍💻 Admin panel: /admin";
   ctx.reply(text, mainMenu);
 });
 
 bot.command("admin", (ctx) => {
-  if (ctx.from.id !== ADMIN_ID) return;
+  if (!isAdmin(ctx)) return;
   ctx.reply("👨‍💻 Admin panel:", adminMenu);
 });
 
 bot.hears("⬅️ Bosh menyu", (ctx) => ctx.reply("Bosh menyu:", mainMenu));
 
 bot.hears("📊 Statistika", async (ctx) => {
-  if (ctx.from.id !== ADMIN_ID) return;
+  if (!isAdmin(ctx)) return;
   const count = await User.countDocuments();
   ctx.reply(`📊 Jami obunachilar: <b>${count} ta</b>`, { parse_mode: "HTML" });
 });
 
 bot.hears("📢 Xabar yuborish", (ctx) => {
-  if (ctx.from.id !== ADMIN_ID) return;
+  if (!isAdmin(ctx)) return;
   ctx.session.adminMode = "send_post";
   ctx.reply("📢 Barcha obunachilarga yuboriladigan xabar matnini kiriting:");
 });
@@ -91,9 +100,9 @@ bot.hears("📢 Xabar yuborish", (ctx) => {
 bot.hears("🎵 Musiqa qidirish", (ctx) => { ctx.session.mode = "music"; ctx.reply("🎵 Qo'shiq nomini yozing:"); });
 bot.hears("🎬 Kino (Treyler) qidirish", (ctx) => { ctx.session.mode = "movie"; ctx.reply("🎬 Kino nomini yozing:"); });
 
-// ================= YOUTUBE QIDIRUV =================
+// ================= YOUTUBE SEARCH =================
 async function searchYouTubeLive(ctx, query) {
-  const waiting = await ctx.reply("🔍 Qidirilmoqda...").catch(() => null);
+  const waiting = await ctx.reply("🔍 YouTube qidirilmoqda...").catch(() => null);
   try {
     const searchResults = await ytSearch(query);
     const videos = searchResults.videos.slice(0, 5);
@@ -121,60 +130,41 @@ async function searchYouTubeLive(ctx, query) {
   }
 }
 
-// ================= UNIVERSAL STABLE DOWNLOAD ENGINE =================
+// ================= COBALT ENGINE (ENV DRIVEN) =================
 async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = "") {
   const waiting = await ctx.reply("⚡ Yuklash tayyorlanmoqda...").catch(() => null);
   const fileId = crypto.randomUUID().slice(0, 8);
   const finalPath = path.join(__dirname, `media_${fileId}.${isAudio ? 'mp3' : 'mp4'}`);
 
   try {
-    if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "📥 RapidAPI orqali media tahlil qilinmoqda...").catch(() => {});
-
-    const options = {
-      method: 'GET',
-      url: `https://${RAPIDAPI_HOST}/v1/get-video`, 
-      params: { url: targetUrl },
-      headers: {
-        'X-RapidAPI-Key': RAPIDAPI_KEY,
-        'X-RapidAPI-Host': RAPIDAPI_HOST
-      },
-      timeout: 40000
-    };
-
-    const response = await axios.request(options);
-    const resData = response.data;
-
-    // 🧠 RapidAPI javob obyektining ichidan oqim (download link) qidirish algoritmik filtri
     let directDownloadUrl = null;
 
-    if (isAudio) {
-      directDownloadUrl = resData.audio_url || resData.audio || (resData.links && resData.links.find(l => l.type === 'audio' || l.quality === 'audio')?.url);
-    } else {
-      directDownloadUrl = resData.video_url || resData.video || resData.url || (resData.links && resData.links[0]?.url);
+    if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "📥 Havola tahlil qilinmoqda...").catch(() => {});
+
+    // Universallikni ta'minlash uchun xavfsiz Cobalt tarmog'idan foydalanamiz
+    const config = {
+      url: targetUrl,
+      downloadMode: isAudio ? "audio" : "video",
+      videoQuality: "720",
+      audioFormat: "mp3"
+    };
+
+    const headers = { "Accept": "application/json", "Content-Type": "application/json" };
+    
+    // Agar YouTube bo'lsa, .env dan olingan cookie drayverini qo'shamiz
+    if (!targetUrl.includes("instagram.com") && !targetUrl.includes("tiktok.com") && YT_COOKIES) {
+      headers["Cookie"] = YT_COOKIES;
     }
 
-    if (!directDownloadUrl && resData.data) {
-      directDownloadUrl = isAudio ? resData.data.audio || resData.data.audio_url : resData.data.video || resData.data.video_url || resData.data.url;
-    }
-
-    // Agar yuqoridagilardan ham topilmasa, obyekt ichidagi birinchi uchragan urlni olishga urinish
-    if (!directDownloadUrl && typeof resData === 'object') {
-      const keys = Object.keys(resData);
-      for (let key of keys) {
-        if (typeof resData[key] === 'string' && resData[key].startsWith('http')) {
-          directDownloadUrl = resData[key];
-          break;
-        }
-      }
-    }
+    const response = await axios.post("https://api.cobalt.tools/api/json", config, { headers });
+    directDownloadUrl = response.data.url;
 
     if (!directDownloadUrl) {
-      throw new Error("RapidAPI javob qaytardi, lekin uning ichidan yuklab olish havolasini (URL) ajratib bo'lmadi.");
+      throw new Error("Yuklash oqimi (URL) topilmadi.");
     }
 
-    if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "📥 Server faylni xotiraga yuklamoqda...").catch(() => {});
+    if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "📥 Server faylni yuklamoqda...").catch(() => {});
 
-    // Faylni qismlarga bo'lib oqimli yuklab olish
     const fileStream = fs.createWriteStream(finalPath);
     const downloadBuffer = await axios.get(directDownloadUrl, { responseType: "stream" });
     downloadBuffer.data.pipe(fileStream);
@@ -195,13 +185,13 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
     if (isAudio) {
       await ctx.replyWithAudio({ source: finalPath, filename: `${title}.mp3` }, { title: title });
     } else {
-      await ctx.replyWithVideo({ source: finalPath }, { caption: `📥 <b>${title}</b>\n\nPlatforma: ${sourcePlatform}\nBot: @${ctx.botInfo.username}`, parse_mode: "HTML" });
+      await ctx.replyWithVideo({ source: finalPath }, { caption: `📥 <b>Yuklab olindi!</b>\n\nPlatforma: ${sourcePlatform}\nBot: @${ctx.botInfo.username}`, parse_mode: "HTML" });
     }
 
   } catch (err) {
-    console.error("RapidAPI API muammosi:", err.message);
+    console.error("Xato:", err.message);
     if (waiting) {
-      await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, `❌ <b>RapidAPI xatoligi!</b>\n\n<b>Kalit holati:</b> Kalit qabul qilindi.\n<b>Xato sababi:</b> <code>${err.message}</code>\n\n💡 Agar havola to'g'ri bo'lsa, siz RapidAPI paneldan tanlagan downloader endpoint nomi yoki xostingiz (Host) koddagi xostga mos kelmayapti.`, { parse_mode: "HTML" }).catch(() => {});
+      await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, `❌ <b>Yuklab bo'lmadi!</b>\n\nSiz yuborgan havola noto'g'ri yoki yuklash drayverida muammo bor.`, { parse_mode: "HTML" }).catch(() => {});
     }
   } finally {
     try { if (fs.existsSync(finalPath)) fs.unlinkSync(finalPath); } catch (e) {}
@@ -213,8 +203,8 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
 bot.on("message", async (ctx) => {
   ctx.session = ctx.session || {};
 
-  // 📢 ADMIN REKLAMA TIZIMI
-  if (ctx.from.id === ADMIN_ID && ctx.session.adminMode === "send_post") {
+  // 📢 ADMIN REKLAMA TIZIMI (KOPIYALASH REJIMIDAGI JONLI XABAR TARQATISH)
+  if (isAdmin(ctx) && ctx.session.adminMode === "send_post") {
     ctx.session.adminMode = null; 
     const users = await User.find();
     ctx.reply(`📢 Reklama ${users.length} ta foydalanuvchiga yuborilmoqda...`);
@@ -234,13 +224,12 @@ bot.on("message", async (ctx) => {
   
   if (text === "🎬 Kino (Treyler) qidirish" || text === "🎵 Musiqa qidirish" || text === "📊 Statistika" || text === "📢 Xabar yuborish" || text === "⬅️ Bosh menyu") return;
 
-  // 🔗 BARCHA LINKLAR UCHUN FORMAT SO'RASH BLOCKI
+  // 🔗 LINKLARNI ANIQLASH VA FORMAT SO'RASH
   if (/https?:\/\//.test(text)) {
     const shortKey = crypto.randomUUID().slice(0, 8);
     ctx.session[shortKey] = text;
 
-    // Qaysi tarmoq bo'lishidan qat'iy nazar format so'raydi
-    return ctx.reply("📥 Havola aniqlandi. Yuklamoqchi bo'lgan formatni tanlang:", Markup.inlineKeyboard([
+    return ctx.reply("📥 Havola aniqlandi. Yuklash formatini tanlang:", Markup.inlineKeyboard([
       [Markup.button.callback("🎥 Video (MP4)", `fmt_v_${shortKey}`), Markup.button.callback("🎵 Audio (MP3)", `fmt_m_${shortKey}`)]
     ]));
   }
@@ -270,5 +259,5 @@ bot.action(/dl_(m|v)_(.+)/, async (ctx) => {
 });
 
 client.connect().then(() => {
-  bot.launch({ dropPendingUpdates: true }).then(() => console.log("🔥 ULTIMATE ENGINE WITH HARDCODED API KEY ONLINE!"));
+  bot.launch({ dropPendingUpdates: true }).then(() => console.log("🔥 SYSTEM FULLY CONFIGURED VIA ENV WITH TOTAL BROADCAST SYSTEM!"));
 });
