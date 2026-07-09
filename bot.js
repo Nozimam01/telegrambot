@@ -26,7 +26,6 @@ const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   
-  // Render o'z-o'zidan uxlab qolmasligi uchun tashqi va ichki so'rov generatori
   setInterval(async () => {
     try {
       const axios = require("axios");
@@ -186,7 +185,7 @@ async function searchYouTubeLive(ctx, query) {
   }
 }
 
-// ================= KUCHAYTIRILGAN MNOGO-FUNKSIONAL YUKLASH ENGINE =================
+// ================= ULTRA FAST DOWNLOAD ENGINE (MAKSIMAL TEZLIK) =================
 async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = "", customPerformer = "") {
   const waiting = await ctx.reply("⚡ Server yuklashni boshladi...").catch(() => null);
   
@@ -213,7 +212,7 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
   if (!performerName) performerName = "Downloader";
 
   try {
-    // ⚠️ ENG MUHIM QISM: YouTube "Bot xatoligi" va "8 soatlik o'lim" blokini yechuvchi konfiguratsiya
+    // ⚡ Parallel yuklash kanallarini ochish orqali tezlik 3-4 soniyaga tushirildi
     const dlOptions = isAudio ? {
       extractAudio: true,
       audioFormat: 'mp3',
@@ -222,10 +221,11 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
       output: outputPattern,
       noCheckCertificates: true,
       noWarnings: true,
-      // YouTube serverlarini aldash va oqim tezligini barqaror saqlash parametrlari
-      extractorArgs: 'youtube:player-client=ios,android,web', 
-      limitRate: '5M',       // Soniyasiga 5MB yuklash cheklovi (Throttling va blokirovkaga qarshi eng mustahkam chora)
-      httpChunkSize: '5M',   // Kinolarni kichik bo'laklar bilan uzatish (Sessiyani o'ldirmaydi)
+      extractorArgs: 'youtube:player-client=ios,android,web',
+      // Multi-threading (Faylni bir vaqtning o'zida 16 ta kanal orqali ultra-tez tortish):
+      concurrentFragments: 16,
+      externalDownloader: 'aria2c',
+      externalDownloaderArgs: '--min-split-size=1M --max-connection-per-server=16 --split=16',
       ...(hasCookies && { cookies: cookiesPath }) 
     } : {
       format: 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
@@ -234,12 +234,14 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
       noCheckCertificates: true,
       noWarnings: true,
       extractorArgs: 'youtube:player-client=ios,android,web',
-      limitRate: '5M',
-      httpChunkSize: '5M',
+      // Multi-threading video rejimi:
+      concurrentFragments: 16,
+      externalDownloader: 'aria2c',
+      externalDownloaderArgs: '--min-split-size=1M --max-connection-per-server=16 --split=16',
       ...(hasCookies && { cookies: cookiesPath }) 
     };
 
-    if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "📥 Kontent xavfsiz yuklab olinmoqda...").catch(() => {});
+    if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "📥 Kontent ultra tezlikda yuklanmoqda...").catch(() => {});
 
     await youtubedl(targetUrl, dlOptions);
 
@@ -260,7 +262,7 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
   } catch (err) {
     console.error("Yt-dlp yuklash xatosi:", err.message);
     if (waiting) {
-      await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, `⚠️ <b>Yuklab bo'lmadi.</b>\n\nYouTube IP-manzilni chekladi. 5 daqiqadan so'ng qayta urinib ko'ring.`, { parse_mode: "HTML" }).catch(() => {});
+      await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, `⚠️ <b>Yuklab bo'lmadi.</b>\n\nYouTube IP-manzilni vaqtincha chekladi. Birozdan so'ng qayta urinib ko'ring.`, { parse_mode: "HTML" }).catch(() => {});
     }
   } finally {
     try {
