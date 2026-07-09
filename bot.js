@@ -50,8 +50,12 @@ const User = mongoose.model("User", new mongoose.Schema({
   date: { type: Date, default: Date.now }
 }));
 
-// ================= BOT INITIALIZATION =================
-const bot = new Telegraf(process.env.BOT_TOKEN);
+// ================= BOT INITIALIZATION (FIXED TIMEOUT) =================
+// ⚠️ Katta kinolar yuklanayotganda Telegraf o'chib qolmasligi uchun taymaut o'chirildi
+const bot = new Telegraf(process.env.BOT_TOKEN, {
+  handlerTimeout: 9000000 // Taymaut vaqti 2.5 soatga uzaytirildi!
+});
+
 const client = new MongoClient(MONGO_URI);
 const db = client.db(); 
 
@@ -185,7 +189,7 @@ async function searchYouTubeLive(ctx, query) {
   }
 }
 
-// ================= ULTRA FAST DOWNLOAD ENGINE (MAKSIMAL TEZLIK) =================
+// ================= RENDER OPTIMIZED DOWNLOAD ENGINE =================
 async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = "", customPerformer = "") {
   const waiting = await ctx.reply("⚡ Server yuklashni boshladi...").catch(() => null);
   
@@ -212,7 +216,7 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
   if (!performerName) performerName = "Downloader";
 
   try {
-    // ⚡ Parallel yuklash kanallarini ochish orqali tezlik 3-4 soniyaga tushirildi
+    // Renderda tayyor o'rnatilgan ffmpeg yordamida tezkor multithreading yuklash tizimi
     const dlOptions = isAudio ? {
       extractAudio: true,
       audioFormat: 'mp3',
@@ -222,10 +226,9 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
       noCheckCertificates: true,
       noWarnings: true,
       extractorArgs: 'youtube:player-client=ios,android,web',
-      // Multi-threading (Faylni bir vaqtning o'zida 16 ta kanal orqali ultra-tez tortish):
-      concurrentFragments: 16,
-      externalDownloader: 'aria2c',
-      externalDownloaderArgs: '--min-split-size=1M --max-connection-per-server=16 --split=16',
+      // Osilib qolishni oldini oluvchi va tezlashtiruvchi ishonchli oqim parametrlari:
+      concurrentFragments: 8, 
+      hlsPreferNative: true,
       ...(hasCookies && { cookies: cookiesPath }) 
     } : {
       format: 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
@@ -234,14 +237,13 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
       noCheckCertificates: true,
       noWarnings: true,
       extractorArgs: 'youtube:player-client=ios,android,web',
-      // Multi-threading video rejimi:
-      concurrentFragments: 16,
-      externalDownloader: 'aria2c',
-      externalDownloaderArgs: '--min-split-size=1M --max-connection-per-server=16 --split=16',
+      // Video uchun barqaror oqim sozlamalari:
+      concurrentFragments: 8,
+      hlsPreferNative: true,
       ...(hasCookies && { cookies: cookiesPath }) 
     };
 
-    if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "📥 Kontent ultra tezlikda yuklanmoqda...").catch(() => {});
+    if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "📥 Kontent xavfsiz yuklab olinmoqda...").catch(() => {});
 
     await youtubedl(targetUrl, dlOptions);
 
@@ -262,7 +264,7 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
   } catch (err) {
     console.error("Yt-dlp yuklash xatosi:", err.message);
     if (waiting) {
-      await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, `⚠️ <b>Yuklab bo'lmadi.</b>\n\nYouTube IP-manzilni vaqtincha chekladi. Birozdan so'ng qayta urinib ko'ring.`, { parse_mode: "HTML" }).catch(() => {});
+      await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, `⚠️ <b>Yuklab bo'lmadi.</b>\n\nYouTube bog'lanishni chekladi yoki fayl juda katta. Birozdan so'ng qayta urinib ko'ring.`, { parse_mode: "HTML" }).catch(() => {});
     }
   } finally {
     try {
@@ -342,7 +344,7 @@ bot.action(/dl_(m|v)_(.+)/, async (ctx) => {
 
 client.connect().then(() => {
   bot.launch({ dropPendingUpdates: true })
-    .then(() => console.log("🔥 STABLE REINFORCED BYPASS ENGINE RUNNING 24/7!"))
+    .then(() => console.log("🔥 STABLE TIMEOUT-FREE ENGINE RUNNING!"))
     .catch((err) => console.error(err.message));
 }).catch(err => console.error("MongoDB ulanish xatosi:", err));
 
