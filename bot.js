@@ -19,7 +19,7 @@ if (!MONGO_URI) {
   process.exit(1);
 }
 
-// Kodning o'ziga kiritilgan cookies matni
+// Cookies ma'lumotlarini vaqtinchalik faylga yozish
 const COOKIES_DATA = `# Netscape HTTP Cookie File
 # http://curl.haxx.se/rfc/cookie_spec.html
 # This is a generated file!  Do not edit.
@@ -35,23 +35,49 @@ const COOKIES_DATA = `# Netscape HTTP Cookie File
 .youtube.com	TRUE	/	FALSE	1803443364	VISITOR_PRIVACY_METADATA	CgJVWhIEGgAgLg%3D%3D
 .youtube.com	TRUE	/	FALSE	0	YSC	nNOgkL8Wpg4`;
 
-// Vaqtinchalik cookie faylini yaratish
 const cookiesPath = path.join(__dirname, "temp_cookies.txt");
 fs.writeFileSync(cookiesPath, COOKIES_DATA);
 
-// ================= EXPRESS WEB SERVER =================
+// ================= EXPRESS & WEBHOOK SETUP =================
 const app = express();
-app.get("/", (req, res) => res.send("🟢 Engine Active and Awake"));
-const PORT = process.env.PORT || 4000; 
-app.listen(PORT, () => {
+app.use(express.json());
+
+const PORT = process.env.PORT || 4000;
+const RENDER_URL = process.env.RENDER_EXTERNAL_URL; // Render avtomatik beradi
+
+if (!RENDER_URL) {
+  console.warn("⚠️ DIQQAT: RENDER_EXTERNAL_URL topilmadi. Webhook xato ishlashi mumkin!");
+}
+
+const bot = new Telegraf(process.env.BOT_TOKEN);
+const SECRET_PATH = `/webhook/${bot.secretPathComponent()}`;
+
+// Telegram webhook marshriti
+app.use(bot.webhookCallback(SECRET_PATH));
+
+app.get("/", (req, res) => res.send("🟢 Render Engine Active and Awake"));
+
+app.listen(PORT, async () => {
   console.log(`🚀 Server running on port ${PORT}`);
   
+  if (RENDER_URL) {
+    try {
+      await bot.telegram.setWebhook(`${RENDER_URL}${SECRET_PATH}`);
+      console.log(`🔥 Webhook muvaffaqiyatli o'rnatildi: ${RENDER_URL}${SECRET_PATH}`);
+    } catch (e) {
+      console.error("Webhook o'rnatish xatosi:", e.message);
+    }
+  }
+
+  // Render uyqu rejimining oldini olish uchun har 4 daqiqada o'ziga ping yuborish
   setInterval(async () => {
     try {
-      const serverUrl = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
-      await axios.get(serverUrl);
+      if (RENDER_URL) {
+        await axios.get(RENDER_URL);
+        console.log("⏰ Serverga o'z-o'zidan ping yuborildi (uyqu rejimi bloklandi).");
+      }
     } catch (e) {}
-  }, 5 * 60 * 1000);
+  }, 4 * 60 * 1000);
 });
 
 // ================= MONGOOSE DATABASE =================
@@ -69,9 +95,8 @@ const User = mongoose.model("User", new mongoose.Schema({
   date: { type: Date, default: Date.now }
 }));
 
-// ================= BOT INITIALIZATION =================
-const bot = new Telegraf(process.env.BOT_TOKEN, { handlerTimeout: 9000000 });
 const client = new MongoClient(MONGO_URI, { serverSelectionTimeoutMS: 30000 });
+client.connect().then(() => console.log("🍃 MongoDB Client ulandi!"));
 const db = client.db(); 
 
 bot.use(session(db, { collectionName: "telegraf_sessions" }));
@@ -163,7 +188,7 @@ bot.hears("🎬 Kino (Treyler) qidirish", (ctx) => {
   ctx.reply("🎬 Kino yoki treyler nomini yozing:");
 });
 
-// ================= BLOKSIZ QIDIRUV (INVIDIOUS API) =================
+// ================= QIDIRUV (INVIDIOUS API) =================
 async function searchYouTubeLive(ctx, query) {
   const waiting = await ctx.reply("🔍 Qidirilmoqda...").catch(() => null);
   try {
@@ -199,7 +224,7 @@ async function searchYouTubeLive(ctx, query) {
     return ctx.reply("📋 Topilgan natijalar:", Markup.inlineKeyboard(buttons));
   } catch (err) {
     if (waiting) await ctx.deleteMessage(waiting.message_id).catch(() => {});
-    ctx.reply("⚠️ Qidiruv amalga oshmadi.");
+    ctx.reply("⚠️ Qidiruv vaqtida xatolik yuz berdi.");
   }
 }
 
@@ -260,7 +285,7 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
   } catch (err) {
     console.error("Yuklash xatosi:", err.message);
     if (waiting) {
-      await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, `❌ <b>Yuklab bo'lmadi.</b>\n\nXatolik yuz berdi.`, { parse_mode: "HTML" }).catch(() => {});
+      await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, `❌ <b>Yuklab bo'lmadi.</b>`, { parse_mode: "HTML" }).catch(() => {});
     }
   } finally {
     try {
@@ -337,12 +362,6 @@ bot.action(/dl_(m|v)_(.+)/, async (ctx) => {
     await downloadAndSend(ctx, fullYoutubeUrl, isAudio, trackData.title, trackData.performer);
   } catch (e) {}
 });
-
-client.connect().then(() => {
-  bot.launch({ dropPendingUpdates: true })
-    .then(() => console.log("🔥 IN-CODE COOKIE BOT RUNNING!"))
-    .catch((err) => console.error(err.message));
-}).catch(err => console.error("MongoDB xatosi:", err));
 
 process.once("SIGINT", () => bot.stop("SIGINT"));
 process.once("SIGTERM", () => bot.stop("SIGTERM"));
