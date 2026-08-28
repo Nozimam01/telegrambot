@@ -9,6 +9,7 @@ const mongoose = require("mongoose");
 const ADMINS = [
   8125836834, // Sizning Telegram ID
    
+ 
 ];
 
 const MONGO_URI = process.env.MONGO_URI;
@@ -38,9 +39,8 @@ app.listen(PORT, "0.0.0.0", () => console.log(`🚀 Server port: ${PORT}`));
 const bot = new Telegraf(process.env.BOT_TOKEN);
 const userSessions = {};
 
-// ================= RAPIDAPI YUKLASH FUNKSIYASI =================
+// ================= RAPIDAPI YUKLASH FUNKSIYASI (AUDIO UCHUN TO'G'RILANDI) =================
 async function getSocialMediaDownloadUrl(youtubeUrl, isAudio = false) {
-  // YouTube URL'dan videoId ajratib olish
   let videoId = youtubeUrl;
   const match = youtubeUrl.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([\w-]{11})/);
   if (match && match[1]) {
@@ -66,21 +66,41 @@ async function getSocialMediaDownloadUrl(youtubeUrl, isAudio = false) {
   const response = await axios.request(options);
   const data = response.data;
 
+  if (!data) throw new Error("API ma'lumot qaytarmadi.");
+
   if (isAudio) {
-    // Audio formatni qidirish
-    const audioStream = data.adaptiveFormats?.find(f => f.mimeType?.includes('audio')) || data.formats?.find(f => f.mimeType?.includes('audio'));
-    if (audioStream && audioStream.url) return audioStream.url;
+    // 1-urinish: Adaptive formatlardan faqat audioni topish
+    if (data.adaptiveFormats && Array.isArray(data.adaptiveFormats)) {
+      const audioFormat = data.adaptiveFormats.find(f => f.mimeType && f.mimeType.includes('audio'));
+      if (audioFormat && audioFormat.url) return audioFormat.url;
+    }
+
+    // 2-urinish: Oddiy formats ro'yxatidan audio topish
+    if (data.formats && Array.isArray(data.formats)) {
+      const audioFormat = data.formats.find(f => f.mimeType && f.mimeType.includes('audio'));
+      if (audioFormat && audioFormat.url) return audioFormat.url;
+    }
+
+    // 3-urinish: Past sifatli video stream (Telegram audio qilib berishi uchun)
+    if (data.formats && data.formats.length > 0 && data.formats[0].url) {
+      return data.formats[0].url;
+    }
   } else {
     // Video formatni qidirish
-    const videoStream = data.formats?.find(f => f.qualityLabel || f.height) || data.adaptiveFormats?.find(f => f.mimeType?.includes('video'));
-    if (videoStream && videoStream.url) return videoStream.url;
+    if (data.formats && Array.isArray(data.formats)) {
+      const videoFormat = data.formats.find(f => f.url && (f.qualityLabel || f.height));
+      if (videoFormat) return videoFormat.url;
+    }
+    if (data.adaptiveFormats && Array.isArray(data.adaptiveFormats)) {
+      const videoFormat = data.adaptiveFormats.find(f => f.url && f.mimeType && f.mimeType.includes('video'));
+      if (videoFormat) return videoFormat.url;
+    }
   }
 
-  // Zaxira havola
   if (data.downloadUrl) return data.downloadUrl;
   if (data.url) return data.url;
 
-  throw new Error("Yuklash havolasini ajratib bo'lmadi.");
+  throw new Error("Tegishli yuklash havolasi topilmadi.");
 }
 
 // ================= /START VA /XUSHKELEBSIZ BUYRUG'I =================
@@ -123,11 +143,8 @@ bot.command("xushkelibsiz", sendStartMessage);
 // ================= ADMIN PANEL =================
 bot.command("admin", (ctx) => {
   const userId = Number(ctx.from.id);
-  
-  if (!ADMINS.map(Number).includes(userId)) {
-    return ctx.reply("❌ Siz admin emassiz.");
-  }
-  
+  if (!ADMINS.map(Number).includes(userId)) return ctx.reply("❌ Siz admin emassiz.");
+
   ctx.reply(
     `👨‍💻 **Admin panelga xush kelibsiz!**`,
     Markup.inlineKeyboard([
@@ -143,14 +160,9 @@ bot.action("admin_stats", async (ctx) => {
   ctx.answerCbQuery();
   
   const users = await User.find().sort({ date: -1 });
-  const count = users.length;
+  if (users.length === 0) return ctx.reply("📊 Bazada hali foydalanuvchilar yo'q.");
 
-  if (count === 0) {
-    return ctx.reply("📊 Bazada hali foydalanuvchilar yo'q.");
-  }
-
-  let text = `📊 **Botingizdan foydalanayotganlar:** ${count} ta\n\n` +
-             `👤 **Foydalanuvchilar ro'yxati:**\n`;
+  let text = `📊 **Botingizdan foydalanayotganlar:** ${users.length} ta\n\n👤 **Foydalanuvchilar ro'yxati:**\n`;
 
   users.forEach((u, index) => {
     const safeName = (u.firstName || "Ismsiz").replace(/[_*`\[\]]/g, ""); 
@@ -159,9 +171,7 @@ bot.action("admin_stats", async (ctx) => {
 
   if (text.length > 4000) {
     const chunks = text.match(/[\s\S]{1,4000}/g);
-    for (const chunk of chunks) {
-      await ctx.reply(chunk, { parse_mode: "Markdown" });
-    }
+    for (const chunk of chunks) await ctx.reply(chunk, { parse_mode: "Markdown" });
   } else {
     ctx.reply(text, { parse_mode: "Markdown" });
   }
@@ -215,22 +225,19 @@ bot.on("message", async (ctx) => {
   if (!ctx.message.text) return;
   const text = ctx.message.text.trim();
 
-  // 1-HOLAT: HAVOLA YUBORILSA
+  // HAVOLA YUBORILSA
   if (/https?:\/\//.test(text)) {
     userSessions[userId] = { ...userSessions[userId], targetUrl: text };
 
-    return ctx.reply("✨ **Qaysi formatda yuklamoqchisiz?**", {
-      parse_mode: "Markdown",
-      ...Markup.inlineKeyboard([
-        [
-          Markup.button.callback("🎵 MP3 (Audio)", "format_mp3"),
-          Markup.button.callback("🎬 Video (MP4)", "format_mp4")
-        ]
-      ])
-    });
+    return ctx.reply("✨ **Qaysi formatda yuklamoqchisiz?**", Markup.inlineKeyboard([
+      [
+        Markup.button.callback("🎵 MP3 (Audio)", "format_mp3"),
+        Markup.button.callback("🎬 Video (MP4)", "format_mp4")
+      ]
+    ]));
   }
 
-  // 2-HOLAT: NOMI BO'YICHA QIDIRUV (10 TA RO'YXAT)
+  // NOMI BO'YICHA QIDIRUV (10 TA RO'YXAT)
   const waiting = await ctx.reply("🔍 **Qidirilmoqda...**", { parse_mode: "Markdown" });
 
   try {
@@ -251,20 +258,15 @@ bot.on("message", async (ctx) => {
     });
     messageText += `\n👇 **Yuklab olish uchun quyidagi raqamlardan birini bosing:**`;
 
-    const row1 = [];
-    const row2 = [];
-
+    const row1 = [], row2 = [];
     for (let i = 1; i <= videos.length; i++) {
       const btn = Markup.button.callback(`${i}`, `select_${i - 1}`);
       if (i <= 5) row1.push(btn);
       else row2.push(btn);
     }
 
-    const keyboard = [row1];
-    if (row2.length > 0) keyboard.push(row2);
-
     await ctx.deleteMessage(waiting.message_id).catch(() => {});
-    await ctx.replyWithMarkdown(messageText, Markup.inlineKeyboard(keyboard));
+    await ctx.replyWithMarkdown(messageText, Markup.inlineKeyboard(row2.length > 0 ? [row1, row2] : [row1]));
 
   } catch (err) {
     await ctx.deleteMessage(waiting.message_id).catch(() => {});
@@ -278,25 +280,31 @@ bot.action(/format_(mp3|mp4)/, async (ctx) => {
   const isAudio = ctx.match[1] === "mp3";
   const session = userSessions[ctx.from.id];
 
-  if (!session || !session.targetUrl) {
-    return ctx.reply("❌ Havola topilmadi. Qaytadan yuboring.");
-  }
+  if (!session || !session.targetUrl) return ctx.reply("❌ Havola topilmadi. Qaytadan yuboring.");
 
-  const waiting = await ctx.reply("⚡ **RapidAPI orqali ajratib olinmoqda...**", { parse_mode: "Markdown" });
+  const waiting = await ctx.reply("⚡ **Fayl ishlanmoqda, kuting...**", { parse_mode: "Markdown" });
 
   try {
     const directUrl = await getSocialMediaDownloadUrl(session.targetUrl, isAudio);
-    await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "📤 Telegramga yuklanmoqda...");
 
     if (isAudio) {
-      await ctx.replyWithAudio(directUrl);
+      await ctx.replyWithAudio(directUrl).catch(async () => {
+        // Telegram to'g'ridan-to'g meva qilib yubora olmasa link beradi
+        await ctx.reply("🎵 Audio faylni quyidagi tugma orqali yuklab oling:", Markup.inlineKeyboard([
+          Markup.button.url("📥 Musiqani yuklab olish", directUrl)
+        ]));
+      });
     } else {
-      await ctx.replyWithVideo(directUrl, { caption: `🎬 @${ctx.botInfo.username}` });
+      await ctx.replyWithVideo(directUrl, { caption: `🎬 @${ctx.botInfo.username}` }).catch(async () => {
+        await ctx.reply("🎬 Videoni quyidagi tugma orqali yuklab oling:", Markup.inlineKeyboard([
+          Markup.button.url("📥 Videoni yuklab olish", directUrl)
+        ]));
+      });
     }
 
     await ctx.deleteMessage(waiting.message_id).catch(() => {});
   } catch (err) {
-    await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "❌ Ushbu havoladan yuklab bo'lmadi. Fayl hajmiga yoki havola to'g'riligiga e'tibor bering.");
+    await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "❌ Ushbu havoladan media olib bo'lmadi.");
   }
 });
 
@@ -317,18 +325,25 @@ bot.action(/select_(\d+)/, async (ctx) => {
 
   try {
     const directUrl = await getSocialMediaDownloadUrl(item.url, isAudio);
-    await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "📤 Yuborilmoqda...");
 
     if (isAudio) {
-      await ctx.replyWithAudio(directUrl, { title: item.title, performer: item.author.name });
+      await ctx.replyWithAudio(directUrl, { title: item.title, performer: item.author.name }).catch(async () => {
+        await ctx.reply(`🎵 **${item.title}** musiqasi olinmadi. Direct link orqali yuklab oling:`, Markup.inlineKeyboard([
+          Markup.button.url("📥 Musiqani yuklab olish", directUrl)
+        ]));
+      });
     } else {
-      await ctx.replyWithVideo(directUrl, { caption: `🎬 **${item.title}**\n\n📥 @${ctx.botInfo.username}`, parse_mode: "HTML" });
+      await ctx.replyWithVideo(directUrl, { caption: `🎬 **${item.title}**\n\n📥 @${ctx.botInfo.username}`, parse_mode: "HTML" }).catch(async () => {
+        await ctx.reply(`🎬 **${item.title}** videosini yuklab olish uchun tugmani bosing:`, Markup.inlineKeyboard([
+          Markup.button.url("📥 Videoni yuklab olish", directUrl)
+        ]));
+      });
     }
 
     await ctx.deleteMessage(waiting.message_id).catch(() => {});
   } catch (err) {
-    await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "❌ RapidAPI orqali yuklab bo'lmadi. Qayta urinib ko'ring.");
+    await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "❌ RapidAPI orqali faylni olib bo'lmadi. Boshqa qo'shiq tanlab ko'ring.");
   }
 });
 
-bot.launch({ dropPendingUpdates: true }).then(() => console.log("🔥 BOT RAPIDAPI BILAN ISHGA TUSHDI!"));
+bot.launch({ dropPendingUpdates: true }).then(() => console.log("🔥 BOT ISHGA TUSHDI!"));
