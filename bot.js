@@ -27,7 +27,7 @@ const bot = new Telegraf(process.env.BOT_TOKEN);
 const SECRET_PATH = `/webhook/${bot.secretPathComponent()}`;
 
 app.use(bot.webhookCallback(SECRET_PATH));
-app.get("/", (req, res) => res.send("🟢 Cobalt Bot Active"));
+app.get("/", (req, res) => res.send("🟢 Bot Active"));
 
 app.listen(PORT, async () => {
   console.log(`🚀 Server running on port ${PORT}`);
@@ -61,7 +61,7 @@ const db = client.db();
 bot.use(session(db, { collectionName: "telegraf_sessions" }));
 
 const mainMenu = Markup.keyboard([
-  ["📥 Media yuklab olish (Havola yuboring)"]
+  ["🎵 Musiqa qidirish", "🎬 Kino (Treyler) qidirish"]
 ]).resize();
 
 const adminMenu = Markup.keyboard([
@@ -84,7 +84,7 @@ bot.start(async (ctx) => {
     );
   } catch (e) {}
 
-  let text = "🚀 Bot ishga tushdi.\n\nYouTube, Instagram yoki TikTok havolasini yuboring:";
+  let text = "🚀 Bot ishga tushdi.\n\nMenyudan kerakli bo'limni tanlang yoki to'g'ridan-to'g'ri havola yuboring:";
   if (ctx.from.id === ADMIN_ID) text += "\n\n👨‍💻 Admin: /admin";
   ctx.reply(text, mainMenu);
 });
@@ -94,7 +94,20 @@ bot.command("admin", (ctx) => {
   ctx.reply("👨‍💻 Admin panel:", adminMenu);
 });
 
-bot.hears("⬅️ Bosh menyu", (ctx) => ctx.reply("Bosh menyu:", mainMenu));
+bot.hears("⬅️ Bosh menyu", (ctx) => {
+  ctx.session.mode = null;
+  ctx.reply("Bosh menyu:", mainMenu);
+});
+
+bot.hears("🎵 Musiqa qidirish", (ctx) => {
+  ctx.session.mode = "music";
+  ctx.reply("🎵 Qo'shiq nomini yoki ijrochini yozing:");
+});
+
+bot.hears("🎬 Kino (Treyler) qidirish", (ctx) => {
+  ctx.session.mode = "movie";
+  ctx.reply("🎬 Kino nomini yozing:");
+});
 
 bot.hears("📊 Statistika", async (ctx) => {
   if (ctx.from.id !== ADMIN_ID) return;
@@ -110,9 +123,44 @@ bot.hears("📢 Xabar yuborish", (ctx) => {
   ctx.reply("📢 Xabarni kiriting:");
 });
 
-async function downloadAndSend(ctx, targetUrl, isAudio = false) {
+async function searchYouTube(ctx, query) {
+  const waiting = await ctx.reply("🔍 Qidirilmoqda...").catch(() => null);
+  try {
+    const res = await axios.get(`https://inv.tux.pizza/api/v1/search?q=${encodeURIComponent(query)}&type=video`, { timeout: 10000 });
+    const videos = res.data ? res.data.slice(0, 5) : [];
+
+    if (!videos.length) {
+      if (waiting) await ctx.deleteMessage(waiting.message_id).catch(() => {});
+      return ctx.reply("Hech narsa topilmadi 😕.");
+    }
+
+    const isMusic = ctx.session.mode === "music";
+    const buttons = [];
+
+    videos.forEach((video) => {
+      const cleanTitle = (video.title || "").replace(/[<>:"/\\|?*]/g, "").trim();
+      const trackKey = crypto.randomUUID().slice(0, 8);
+      
+      ctx.session[trackKey] = `https://www.youtube.com/watch?v=${video.videoId}`;
+
+      const displayTitle = cleanTitle.length > 35 ? cleanTitle.slice(0, 32) + "..." : cleanTitle;
+      const emoji = isMusic ? "🎵" : "🎬";
+      
+      buttons.push([Markup.button.callback(`${emoji} ${displayTitle}`, `dl_${trackKey}`)]);
+    });
+
+    if (waiting) await ctx.deleteMessage(waiting.message_id).catch(() => {});
+    return ctx.reply("📋 Topilgan natijalar:", Markup.inlineKeyboard(buttons));
+  } catch (err) {
+    if (waiting) await ctx.deleteMessage(waiting.message_id).catch(() => {});
+    ctx.reply("⚠️ Qidiruv vaqtida xatolik yuz berdi.");
+  }
+}
+
+async function downloadAndSend(ctx, targetUrl) {
   const waiting = await ctx.reply("⚡ Yuklanmoqda...").catch(() => null);
   const fileId = crypto.randomUUID().slice(0, 8);
+  const isAudio = ctx.session.mode === "music";
   const finalPath = path.join(__dirname, `media_${fileId}.${isAudio ? 'mp3' : 'mp4'}`);
 
   try {
@@ -144,7 +192,7 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false) {
       await ctx.replyWithVideo({ source: finalPath }, { caption: `✅ @${ctx.botInfo.username} orqali yuklandi` });
     }
   } catch (err) {
-    if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "❌ Xatolik yuz berdi. Havolani tekshiring.").catch(() => {});
+    if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "❌ Yuklab bo'lmadi.").catch(() => {});
   } finally {
     try { if (fs.existsSync(finalPath)) fs.unlinkSync(finalPath); } catch (e) {}
     if (waiting) await ctx.deleteMessage(waiting.message_id).catch(() => {});
@@ -175,7 +223,22 @@ bot.on("message", async (ctx) => {
     ]));
   }
 
-  ctx.reply("Iltimos, qo'shiq yoki video havolasini yuboring (YouTube, Instagram, TikTok).");
+  if (!ctx.session.mode) {
+    return ctx.reply("Iltimos, avval menyudan **🎵 Musiqa qidirish** yoki **🎬 Kino (Treyler) qidirish** tugmasini bosing.");
+  }
+
+  const query = ctx.session.mode === "movie" ? text + " trailer" : text;
+  await searchYouTube(ctx, query);
+});
+
+bot.action(/dl_(.+)/, async (ctx) => {
+  try {
+    await ctx.answerCbQuery().catch(() => {});
+    ctx.session = ctx.session || {};
+    const url = ctx.session[ctx.match[1]];
+    if (!url) return ctx.reply("❌ Seans muddati tugagan.");
+    await downloadAndSend(ctx, url);
+  } catch (e) {}
 });
 
 bot.action(/fmt_(v|m)_(.+)/, async (ctx) => {
@@ -184,7 +247,9 @@ bot.action(/fmt_(v|m)_(.+)/, async (ctx) => {
     ctx.session = ctx.session || {};
     const url = ctx.session[ctx.match[2]];
     if (!url) return ctx.reply("❌ Seans muddati tugagan.");
-    await downloadAndSend(ctx, url, ctx.match[1] === "m");
+    const isAudio = ctx.match[1] === "m";
+    ctx.session.mode = isAudio ? "music" : "video";
+    await downloadAndSend(ctx, url);
   } catch (e) {}
 });
 
