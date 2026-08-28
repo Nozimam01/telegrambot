@@ -59,9 +59,7 @@ app.listen(PORT, async () => {
         await axios.get(RENDER_URL);
         console.log("⏰ Server uyqu rejimining oldini olish uchun ping yubordi.");
       }
-    } catch (e) {
-      // Tarmoq xatolarini e'tiborsiz qoldirish
-    }
+    } catch (e) {}
   }, 4 * 60 * 1000);
 });
 
@@ -116,9 +114,7 @@ bot.start(async (ctx) => {
       },
       { upsert: true, returnDocument: 'after' }
     );
-  } catch (e) {
-    console.error("Foydalanuvchini saqlashda xato:", e.message);
-  }
+  } catch (e) {}
 
   let welcomeText = "🚀 Bot muvaffaqiyatli ishga tushdi.\n\nQo'shiq yoki kino qidirish uchun quyidagi menyudan foydalaning yoxud istalgan havolani yuboring:";
   if (ctx.from.id === ADMIN_ID) {
@@ -197,7 +193,7 @@ async function searchYouTube(ctx, query) {
 
     if (!videos.length) {
       if (waitingMsg) await ctx.deleteMessage(waitingMsg.message_id).catch(() => {});
-      return ctx.reply("Hech narsa topilmiz 😕. Boshqa nom bilan qidirib ko'ring.");
+      return ctx.reply("Hech narsa topilmadi 😕. Boshqa nom bilan qidirib ko'ring.");
     }
 
     const isMusic = ctx.session.mode === "music";
@@ -207,7 +203,6 @@ async function searchYouTube(ctx, query) {
       const cleanTitle = (video.title || "").replace(/[<>:"/\\|?*]/g, "").trim();
       const trackKey = crypto.randomUUID().slice(0, 8);
       
-      // Seansga YouTube havolasini saqlash
       ctx.session[trackKey] = `https://www.youtube.com/watch?v=${video.videoId}`;
 
       const displayTitle = cleanTitle.length > 35 ? cleanTitle.slice(0, 32) + "..." : cleanTitle;
@@ -232,7 +227,6 @@ async function downloadAndSendMedia(ctx, targetUrl) {
   const tempFilePath = path.join(__dirname, `media_${fileId}.${isAudio ? 'mp3' : 'mp4'}`);
 
   try {
-    // Cobalt API orqali yuklab olish so'rovi
     const response = await axios.post("https://co.wuk.sh/api/json", {
       url: targetUrl,
       isAudioOnly: isAudio,
@@ -249,7 +243,6 @@ async function downloadAndSendMedia(ctx, targetUrl) {
     let downloadStreamUrl = response.data?.url || response.data?.picker?.[0]?.url;
     if (!downloadStreamUrl) throw new Error("Yuklab olish havolasi topilmadi.");
 
-    // Faylni vaqtinchalik serverga oqim (stream) orqali yozish
     const writer = fs.createWriteStream(tempFilePath);
     const streamRes = await axios.get(downloadStreamUrl, { responseType: "stream", timeout: 45000 });
     streamRes.data.pipe(writer);
@@ -272,7 +265,6 @@ async function downloadAndSendMedia(ctx, targetUrl) {
       await ctx.telegram.editMessageText(ctx.chat.id, waitingMsg.message_id, null, "❌ Afsuski, bu havolani yuklab bo'lmadi.").catch(() => {});
     }
   } finally {
-    // Vaqtinchalik faylni xotiradan tozalash
     try {
       if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
     } catch (e) {}
@@ -284,7 +276,6 @@ async function downloadAndSendMedia(ctx, targetUrl) {
 bot.on("message", async (ctx) => {
   ctx.session = ctx.session || {};
 
-  // Admin xabar tarqatish rejimi
   if (ctx.from.id === ADMIN_ID && ctx.session.adminMode === "send_post") {
     ctx.session.adminMode = null;
     const users = await User.find();
@@ -297,18 +288,16 @@ bot.on("message", async (ctx) => {
         successCount++;
       } catch (e) {}
     }
-    return ctx.telegram.editMessageText(ctx.chat.id, broadcastMsg.message_id, null, `✅ Xabar tarqatish yakunlandi!\n\nMuvaffaqiyatli yetib bordi: ${success} / ${users.length}`);
+    return ctx.telegram.editMessageText(ctx.chat.id, broadcastMsg.message_id, null, `✅ Xabar tarqatish yakunlandi!\n\nMuvaffaqiyatli yetib bordi: ${successCount} / ${users.length}`);
   }
 
   if (!ctx.message.text) return;
   const userText = ctx.message.text.trim();
 
-  // Menyudagi maxsus tugmalarni tekshirish
   if (["🎵 Musiqa qidirish", "🎬 Kino (Treyler) qidirish", "📊 Statistika", "📢 Xabar yuborish", "⬅️ Bosh menyu"].includes(userText)) {
     return;
   }
 
-  // To'g'ridan-to'g'ri havola yuborilganda
   if (/https?:\/\//.test(userText)) {
     const shortKey = crypto.randomUUID().slice(0, 8);
     ctx.session[shortKey] = userText;
@@ -318,12 +307,10 @@ bot.on("message", async (ctx) => {
     ]));
   }
 
-  // Agar qidiruv rejimi tanlanmagan bo'lsa
   if (!ctx.session.mode) {
     return ctx.reply("Iltimos, avval pastdagi menyudan **🎵 Musiqa qidirish** yoki **🎬 Kino (Treyler) qidirish** tugmasini bosing yoxud to'g'ridan-to'g'ri havola yuboring.");
   }
 
-  // Qidiruv so'rovini bajarish
   const searchQuery = ctx.session.mode === "movie" ? userText + " trailer" : userText;
   await searchYouTube(ctx, searchQuery);
 });
@@ -359,5 +346,9 @@ bot.action(/fmt_(v|m)_(.+)/, async (ctx) => {
 });
 
 // ================= SAFETY SHUTDOWN =================
-process.once("SIGINT", () => bot.stop("SIGINT"));
-process.once("SIGTERM", () => bot.stop("SIGTERM"));
+process.once("SIGINT", () => {
+  try { bot.stop("SIGINT"); } catch (e) {}
+});
+process.once("SIGTERM", () => {
+  try { bot.stop("SIGTERM"); } catch (e) {}
+});
