@@ -7,13 +7,16 @@ const mongoose = require("mongoose");
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
+const youtubedl = require("youtube-dl-exec");
+const ffmpegStatic = require("ffmpeg-static");
 const axios = require("axios");
 
 const ADMIN_ID = process.env.ADMIN_ID ? parseInt(process.env.ADMIN_ID) : 8125836834; 
 const MONGO_URI = process.env.MONGO_URI;
+const cookiesPath = path.join(__dirname, "cookies.txt");
 
 if (!MONGO_URI) {
-  console.error("❌ XATOLIK: MONGO_URI topilmadi! Platforma variable qismini tekshiring.");
+  console.error("❌ XATOLIK: MONGO_URI topilmadi!");
   process.exit(1);
 }
 
@@ -28,10 +31,7 @@ app.listen(PORT, () => {
     try {
       const serverUrl = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
       await axios.get(serverUrl);
-      console.log("⏰ Serverga ping yuborildi, uyqu rejimi bloklandi.");
-    } catch (e) {
-      console.log("⏰ Ping xatosi:", e.message);
-    }
+    } catch (e) {}
   }, 5 * 60 * 1000);
 });
 
@@ -144,11 +144,10 @@ bot.hears("🎬 Kino (Treyler) qidirish", (ctx) => {
   ctx.reply("🎬 Kino yoki treyler nomini yozing:");
 });
 
-// ================= INVIDIOUS BLOKSIZ QIDIRUV TIZIMI =================
+// ================= BLOKSIZ QIDIRUV (INVIDIOUS API) =================
 async function searchYouTubeLive(ctx, query) {
   const waiting = await ctx.reply("🔍 Qidirilmoqda...").catch(() => null);
   try {
-    // YouTube blokirovkasini aylanib o'tish uchun Invidious API ishlatiladi
     const res = await axios.get(`https://inv.tux.pizza/api/v1/search?q=${encodeURIComponent(query)}&type=video`, { timeout: 10000 });
     const videos = res.data ? res.data.slice(0, 5) : [];
 
@@ -163,7 +162,6 @@ async function searchYouTubeLive(ctx, query) {
     videos.forEach((video) => {
       const cleanTitle = video.title.replace(/[<>:"/\\|?*]/g, "").trim();
       const cleanAuthor = (video.author || "YouTube").replace(/[<>:"/\\|?*]/g, "").trim();
-      
       const trackKey = crypto.randomUUID().slice(0, 8);
       
       ctx.session[trackKey] = {
@@ -182,70 +180,77 @@ async function searchYouTubeLive(ctx, query) {
     return ctx.reply("📋 Topilgan natijalar:", Markup.inlineKeyboard(buttons));
   } catch (err) {
     if (waiting) await ctx.deleteMessage(waiting.message_id).catch(() => {});
-    ctx.reply("⚠️ Qidiruv amalga oshmadi. Qayta urinib ko'ring.");
+    ctx.reply("⚠️ Qidiruv amalga oshmadi.");
   }
 }
 
-// ================= COBALT ENGINE YUKLASH TIZIMI =================
+// ================= COOKIES ORQALI YUKLASH (YT-DLP) =================
 async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = "", customPerformer = "") {
   const waiting = await ctx.reply("⚡ Yuklash tayyorlanmoqda...").catch(() => null);
   const fileId = crypto.randomUUID().slice(0, 8);
   const finalPath = path.join(__dirname, `media_${fileId}.${isAudio ? 'mp3' : 'mp4'}`);
+  const outputPattern = path.join(__dirname, `media_${fileId}.%(ext)s`);
+
+  let videoTitle = customTitle || "Requested Track";
+  let performerName = customPerformer || "Audio Downloader";
 
   try {
-    if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "📥 Server tayyorlanmoqda...").catch(() => {});
+    const dlOptions = isAudio ? {
+      extractAudio: true,
+      audioFormat: 'mp3',
+      audioQuality: '5', 
+      ffmpegLocation: ffmpegStatic,
+      output: outputPattern,
+      cookies: cookiesPath, // <--- Cookies shu yerga ulandi
+      noCheckCertificates: true,
+      noWarnings: true,
+      maxFilesize: '50M', 
+      extractorArgs: 'youtube:player-client=android,web;player-skip=dash',
+    } : {
+      format: 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best', 
+      ffmpegLocation: ffmpegStatic,
+      output: outputPattern,
+      cookies: cookiesPath, // <--- Cookies shu yerga ulandi
+      noCheckCertificates: true,
+      noWarnings: true,
+      maxFilesize: '80M', 
+      extractorArgs: 'youtube:player-client=android,web;player-skip=dash',
+    };
 
-    // Cobalt API orqali istalgan tarmoqdan (YouTube, Instagram, TikTok) yuklab olish
-    const response = await axios.post("https://co.wuk.sh/api/json", {
-      url: targetUrl,
-      isAudioOnly: isAudio,
-      aFormat: "mp3",
-      vQuality: "720"
-    }, {
-      headers: {
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-        "User-Agent": "Mozilla/5.0"
-      },
-      timeout: 30000
-    });
+    if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "📥 Server orqali yuklanmoqda...").catch(() => {});
 
-    let downloadStreamUrl = null;
+    await youtubedl(targetUrl, dlOptions);
 
-    if (response.data && response.data.url) {
-      downloadStreamUrl = response.data.url;
-    } else if (response.data && response.data.picker && response.data.picker.length > 0) {
-      downloadStreamUrl = response.data.picker[0].url;
+    if (!fs.existsSync(finalPath)) {
+      const alternativePath = path.join(__dirname, `media_${fileId}.m4a`);
+      if (fs.existsSync(alternativePath)) {
+        fs.renameSync(alternativePath, finalPath);
+      } else {
+        throw new Error("Yuklab olingan fayl topilmadi.");
+      }
     }
 
-    if (!downloadStreamUrl) throw new Error("API oqimli manzilni bera olmadi.");
-
-    if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "📥 Fayl yuklanmoqda...").catch(() => {});
-
-    const writer = fs.createWriteStream(finalPath);
-    const streamRes = await axios.get(downloadStreamUrl, { responseType: "stream" });
-    streamRes.data.pipe(writer);
-
-    await new Promise((resolve, reject) => {
-      writer.on("finish", resolve);
-      writer.on("error", reject);
-    });
-
-    if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "📤 Telegramga uzatilmoqda...").catch(() => {});
+    if (waiting) await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "📤 Telegramga yuborilmoqda...").catch(() => {});
 
     if (isAudio) {
-      await ctx.replyWithAudio({ source: finalPath, filename: `${customTitle || 'Audio'}.mp3` }, { title: customTitle || "Music", performer: customPerformer || "Downloader" });
+      await ctx.replyWithAudio({ source: finalPath, filename: `${videoTitle}.mp3` }, { title: videoTitle, performer: performerName });
     } else {
-      await ctx.replyWithVideo({ source: finalPath }, { caption: `🎬 <b>${escapeHTML(customTitle) || "Yuklab olindi!"}</b>\n\n📥 @${ctx.botInfo.username} orqali yuklandi`, parse_mode: "HTML" });
+      await ctx.replyWithVideo({ source: finalPath }, { caption: `🎬 <b>${escapeHTML(videoTitle)}</b>\n\n📥 @${ctx.botInfo.username} orqali yuklandi`, parse_mode: "HTML" });
     }
 
   } catch (err) {
     console.error("Yuklash xatosi:", err.message);
     if (waiting) {
-      await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, `❌ <b>Yuklab bo'lmadi.</b>\n\nHavola yaroqsiz yoki xizmat vaqtincha band.`, { parse_mode: "HTML" }).catch(() => {});
+      await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, `❌ <b>Yuklab bo'lmadi.</b>\n\nCookie fayl muddati tugagan bo'lishi mumkin yoki fayl hajmi katta.`, { parse_mode: "HTML" }).catch(() => {});
     }
   } finally {
-    try { if (fs.existsSync(finalPath)) fs.unlinkSync(finalPath); } catch (e) {}
+    try {
+      if (fs.existsSync(finalPath)) fs.unlinkSync(finalPath);
+      const origMp4 = path.join(__dirname, `media_${fileId}.mp4`);
+      if (fs.existsSync(origMp4)) fs.unlinkSync(origMp4);
+      const origM4a = path.join(__dirname, `media_${fileId}.m4a`);
+      if (fs.existsSync(origM4a)) fs.unlinkSync(origM4a);
+    } catch (e) {}
     if (waiting) await ctx.deleteMessage(waiting.message_id).catch(() => {});
   }
 }
@@ -292,7 +297,7 @@ bot.action(/fmt_(v|m)_(.+)/, async (ctx) => {
     await ctx.answerCbQuery().catch(() => {});
     ctx.session = ctx.session || {};
     const url = ctx.session[ctx.match[2]];
-    if (!url) return ctx.reply("❌ Seans muddati tugagan, iltimos havolani qayta yuboring.");
+    if (!url) return ctx.reply("❌ Seans muddati tugagan.");
     await downloadAndSend(ctx, url, ctx.match[1] === "m");
   } catch (e) {}
 });
@@ -306,22 +311,19 @@ bot.action(/dl_(m|v)_(.+)/, async (ctx) => {
     
     const trackData = ctx.session[trackKey];
     if (!trackData) {
-      return ctx.reply("❌ Qidiruv muddati tugagan. Qaytadan qidirib ko'ring.");
+      return ctx.reply("❌ Qidiruv muddati tugagan.");
     }
 
     const fullYoutubeUrl = `https://www.youtube.com/watch?v=${trackData.id}`;
     await downloadAndSend(ctx, fullYoutubeUrl, isAudio, trackData.title, trackData.performer);
-  } catch (e) {
-    console.error("Tugma boshqaruv xatosi:", e.message);
-  }
+  } catch (e) {}
 });
 
-// MongoDB ulanishini kutib bot ishga tushadi
 client.connect().then(() => {
   bot.launch({ dropPendingUpdates: true })
-    .then(() => console.log("🔥 PERSISTENT ENGINE RUNNING WITH INVIDIOUS & COBALT BYPASS!"))
+    .then(() => console.log("🔥 COOKIE-ENABLED BOT RUNNING!"))
     .catch((err) => console.error(err.message));
-}).catch(err => console.error("MongoDB ulanish xatosi:", err));
+}).catch(err => console.error("MongoDB xatosi:", err));
 
 process.once("SIGINT", () => bot.stop("SIGINT"));
 process.once("SIGTERM", () => bot.stop("SIGTERM"));
