@@ -346,9 +346,6 @@ bot.action(/fmt_(v|m)_(.+)/, async (ctx) => {
 });
 
 // ================= SAFETY SHUTDOWN =================
-process.once("SIGINT", () => {
-  try { bot.stop("SIGINT"); } catch (e) {}
-});
-process.once("SIGTERM", () => {
-  try { bot.stop("SIGTERM"); } catch (e) {}
-});
+// ================= SAFETY SHUTDOWN =================
+process.once("SIGINT", () => process.exit(0));
+process.once("SIGTERM", () => process.exit(0));
