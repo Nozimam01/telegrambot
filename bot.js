@@ -7,14 +7,13 @@ const mongoose = require("mongoose");
 
 // ================= ADMINLAR SOZLAMASI =================
 const ADMINS = [
-  8125836834, // 1-Admin (Siz)
-   // 2-Admin ID
-    // 3-Admin ID
+  8125836834, // Sizning Telegram ID
+   
 ];
 
 const MONGO_URI = process.env.MONGO_URI;
 const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY || "d8d01b8fc7msh4b21e81a8a871bcp1307d7jsnd76c8175e018";
-const RAPIDAPI_HOST = "premium-youtube-mp3-converter-and-mp4-downloader.p.rapidapi.com";
+const RAPIDAPI_HOST = "social-media-video-downloader.p.rapidapi.com";
 
 // ================= DATABASE (MongoDB) =================
 if (MONGO_URI) {
@@ -40,56 +39,48 @@ const bot = new Telegraf(process.env.BOT_TOKEN);
 const userSessions = {};
 
 // ================= RAPIDAPI YUKLASH FUNKSIYASI =================
-async function getRapidMediaUrl(youtubeUrl, isAudio = false) {
-  const format = isAudio ? "mp3" : "mp4";
-  
-  const initOptions = {
+async function getSocialMediaDownloadUrl(youtubeUrl, isAudio = false) {
+  // YouTube URL'dan videoId ajratib olish
+  let videoId = youtubeUrl;
+  const match = youtubeUrl.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([\w-]{11})/);
+  if (match && match[1]) {
+    videoId = match[1];
+  }
+
+  const options = {
     method: 'GET',
-    url: `https://${RAPIDAPI_HOST}/api/v4/process`,
-    params: { url: youtubeUrl, format: format },
+    url: `https://${RAPIDAPI_HOST}/youtube/v3/video/details`,
+    params: {
+      videoId: videoId,
+      urlAccess: 'proxied',
+      renderableFormats: '720p,highres',
+      getTranscript: 'false'
+    },
     headers: {
       'x-rapidapi-key': RAPIDAPI_KEY,
-      'x-rapidapi-host': RAPIDAPI_HOST
+      'x-rapidapi-host': RAPIDAPI_HOST,
+      'Content-Type': 'application/json'
     }
   };
 
-  const initRes = await axios.request(initOptions);
-  
-  if (initRes.data && initRes.data.downloadUrl) {
-    return initRes.data.downloadUrl;
-  }
-  
-  const taskId = initRes.data?.id || initRes.data?.taskId;
-  if (!taskId) throw new Error("Yuklash kaliti olinmadi");
+  const response = await axios.request(options);
+  const data = response.data;
 
-  let downloadUrl = null;
-  for (let i = 0; i < 10; i++) {
-    await new Promise(resolve => setTimeout(resolve, 2000));
-
-    const statusOptions = {
-      method: 'GET',
-      url: `https://${RAPIDAPI_HOST}/api/v4/status/${taskId}`,
-      headers: {
-        'x-rapidapi-key': RAPIDAPI_KEY,
-        'x-rapidapi-host': RAPIDAPI_HOST,
-        'Content-Type': 'application/json',
-        Accept: 'application/json'
-      }
-    };
-
-    const statusRes = await axios.request(statusOptions);
-    if (statusRes.data && statusRes.data.downloadUrl) {
-      downloadUrl = statusRes.data.downloadUrl;
-      break;
-    }
-    if (statusRes.data && statusRes.data.status === "completed" && statusRes.data.result) {
-      downloadUrl = statusRes.data.result;
-      break;
-    }
+  if (isAudio) {
+    // Audio formatni qidirish
+    const audioStream = data.adaptiveFormats?.find(f => f.mimeType?.includes('audio')) || data.formats?.find(f => f.mimeType?.includes('audio'));
+    if (audioStream && audioStream.url) return audioStream.url;
+  } else {
+    // Video formatni qidirish
+    const videoStream = data.formats?.find(f => f.qualityLabel || f.height) || data.adaptiveFormats?.find(f => f.mimeType?.includes('video'));
+    if (videoStream && videoStream.url) return videoStream.url;
   }
 
-  if (downloadUrl) return downloadUrl;
-  throw new Error("Tayyorlanish vaqti tugadi");
+  // Zaxira havola
+  if (data.downloadUrl) return data.downloadUrl;
+  if (data.url) return data.url;
+
+  throw new Error("Yuklash havolasini ajratib bo'lmadi.");
 }
 
 // ================= /START VA /XUSHKELEBSIZ BUYRUG'I =================
@@ -146,7 +137,6 @@ bot.command("admin", (ctx) => {
   );
 });
 
-// Admin statistika va foydalanuvchilar ro'yxati (Ism va ID bilan)
 bot.action("admin_stats", async (ctx) => {
   const userId = Number(ctx.from.id);
   if (!ADMINS.map(Number).includes(userId)) return;
@@ -292,10 +282,10 @@ bot.action(/format_(mp3|mp4)/, async (ctx) => {
     return ctx.reply("❌ Havola topilmadi. Qaytadan yuboring.");
   }
 
-  const waiting = await ctx.reply("⚡ **RapidAPI orqali ishlanmoqda, kuting...**", { parse_mode: "Markdown" });
+  const waiting = await ctx.reply("⚡ **RapidAPI orqali ajratib olinmoqda...**", { parse_mode: "Markdown" });
 
   try {
-    const directUrl = await getRapidMediaUrl(session.targetUrl, isAudio);
+    const directUrl = await getSocialMediaDownloadUrl(session.targetUrl, isAudio);
     await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "📤 Telegramga yuklanmoqda...");
 
     if (isAudio) {
@@ -306,7 +296,7 @@ bot.action(/format_(mp3|mp4)/, async (ctx) => {
 
     await ctx.deleteMessage(waiting.message_id).catch(() => {});
   } catch (err) {
-    await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "❌ Ushbu havoladan yuklab bo'lmadi.");
+    await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "❌ Ushbu havoladan yuklab bo'lmadi. Fayl hajmiga yoki havola to'g'riligiga e'tibor bering.");
   }
 });
 
@@ -326,7 +316,7 @@ bot.action(/select_(\d+)/, async (ctx) => {
   const waiting = await ctx.reply(`⚡ **"${item.title}" yuklanmoqda...**`, { parse_mode: "Markdown" });
 
   try {
-    const directUrl = await getRapidMediaUrl(item.url, isAudio);
+    const directUrl = await getSocialMediaDownloadUrl(item.url, isAudio);
     await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "📤 Yuborilmoqda...");
 
     if (isAudio) {
@@ -337,8 +327,8 @@ bot.action(/select_(\d+)/, async (ctx) => {
 
     await ctx.deleteMessage(waiting.message_id).catch(() => {});
   } catch (err) {
-    await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "❌ API orqali yuklab bo'lmadi. Qayta urinib ko'ring.");
+    await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "❌ RapidAPI orqali yuklab bo'lmadi. Qayta urinib ko'ring.");
   }
 });
 
-bot.launch({ dropPendingUpdates: true }).then(() => console.log("🔥 BOT ISHGA TUSHDI!"));
+bot.launch({ dropPendingUpdates: true }).then(() => console.log("🔥 BOT RAPIDAPI BILAN ISHGA TUSHDI!"));
