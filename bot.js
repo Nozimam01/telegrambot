@@ -10,7 +10,7 @@ const crypto = require("crypto");
 
 const ADMIN_ID = process.env.ADMIN_ID ? parseInt(process.env.ADMIN_ID) : 8125836834; 
 const MONGO_URI = process.env.MONGO_URI;
-const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY; // RapidAPI kalitingiz
+const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY || "d8d01b8fc7msh4b21e81a8a871bcp1307d7jsnd76c8175e018";
 
 if (!MONGO_URI) {
   console.error("❌ XATOLIK: MONGO_URI topilmadi!");
@@ -19,7 +19,7 @@ if (!MONGO_URI) {
 
 // ================= EXPRESS WEB SERVER =================
 const app = express();
-const PORT = process.env.PORT || 10000;
+const PORT = process.env.PORT || 4000;
 app.get("/", (req, res) => res.send("🟢 Bot is Active"));
 app.listen(PORT, "0.0.0.0", () => console.log(`🚀 Server port: ${PORT}`));
 
@@ -62,7 +62,7 @@ bot.start(async (ctx) => {
     );
   } catch (e) {}
 
-  let text = "🚀 Bot ishga tushdi.\n\nIjtimoiy tarmoq havolasini yuboring yoki menyudan foydalaning:";
+  let text = "🚀 Bot ishga tushdi.\n\nNomi bo'yicha qidiring yoki Instagram/TikTok/YouTube havolasini yuboring:";
   if (ctx.from.id === ADMIN_ID) text += "\n\n👨‍💻 Admin panel: /admin";
   ctx.reply(text, mainMenu);
 });
@@ -90,33 +90,49 @@ bot.hears("🎬 Kino (Treyler) qidirish", (ctx) => {
   ctx.reply("🎬 Kino yoki treyler nomini yozing:");
 });
 
-// ================= SOCIAL MEDIA DOWNLOADER API =================
-async function downloadViaSocialApi(targetUrl, isAudio = false) {
-  const options = {
-    method: 'POST',
-    url: 'https://social-media-video-downloader.p.rapidapi.com/smvd/get/all',
-    headers: {
-      'x-rapidapi-key': RAPIDAPI_KEY || 'a30d5ef664mshef724d2bd116030p125642jsn4756bf02a46e', // Standart test kalit
-      'x-rapidapi-host': 'social-media-video-downloader.p.rapidapi.com',
-      'Content-Type': 'application/json'
-    },
-    data: { url: targetUrl }
-  };
+// ================= ISHONCHLI RAPIDAPI YUKLASH TIZIMI =================
+async function getMediaViaRapidApi(targetUrl, isAudio = false) {
+  try {
+    // 1-USUL: Best All In One Video Downloader
+    const response = await axios({
+      method: "POST",
+      url: "https://best-all-in-one-video-downloader.p.rapidapi.com/index.php",
+      headers: {
+        "x-rapidapi-key": RAPIDAPI_KEY,
+        "x-rapidapi-host": "best-all-in-one-video-downloader.p.rapidapi.com",
+        "Content-Type": "application/x-www-form-urlencoded"
+      },
+      data: new URLSearchParams({ url: targetUrl }).toString(),
+      timeout: 20000
+    });
 
-  const response = await axios.request(options);
-  const data = response.data;
-
-  if (data && data.links && data.links.length > 0) {
-    const linkObj = data.links.find(l => isAudio ? l.quality.includes("audio") || l.extension === "mp3" : l.extension === "mp4") || data.links[0];
-    return {
-      url: linkObj.link,
-      title: data.title || "Social Media Content"
-    };
+    const data = response.data;
+    if (data && (data.video || data.url || data.link)) {
+      return data.video || data.url || data.link;
+    }
+  } catch (err) {
+    console.log("RapidAPI 1 xatosi:", err.message);
   }
-  throw new Error("Media olinmadi");
+
+  // 2-USUL (Zahira): Cobalt API
+  const cobaltRes = await axios.post("https://api.cobalt.tools/api/json", {
+    url: targetUrl,
+    isAudioOnly: isAudio,
+    aFormat: "mp3",
+    vQuality: "720"
+  }, {
+    headers: { "Accept": "application/json", "Content-Type": "application/json" },
+    timeout: 15000
+  });
+
+  if (cobaltRes.data && cobaltRes.data.url) {
+    return cobaltRes.data.url;
+  }
+
+  throw new Error("Ikkala API orqali ham yuklab bo'lmadi");
 }
 
-// ================= MESSAGES & SEARCH =================
+// ================= XABARLARNI QABUL QILISH =================
 bot.on("message", async (ctx) => {
   ctx.session = ctx.session || {};
   if (!ctx.message.text) return;
@@ -126,20 +142,20 @@ bot.on("message", async (ctx) => {
 
   // Havola yuborilgan bo'lsa (Instagram, TikTok, YouTube)
   if (/https?:\/\//.test(text)) {
-    const waiting = await ctx.reply("📥 Social Media API orqali yuklanmoqda...");
+    const waiting = await ctx.reply("📥 API orqali media fayl olinmoqda...");
     try {
-      const media = await downloadViaSocialApi(text, false);
-      await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "📤 Telegramga jo'natilmoqda...");
+      const downloadUrl = await getMediaViaRapidApi(text, false);
+      await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "📤 Telegramga yuklanmoqda...");
       
-      await ctx.replyWithVideo(media.url, { caption: `🎬 <b>${media.title}</b>\n\n📥 @${ctx.botInfo.username}`, parse_mode: "HTML" });
+      await ctx.replyWithVideo(downloadUrl, { caption: `🎬 @${ctx.botInfo.username}` });
       await ctx.deleteMessage(waiting.message_id).catch(() => {});
     } catch (e) {
-      await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "❌ Havolani yuklab bo'lmadi. Havola to'g'riligini tekshiring.");
+      await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "❌ Ushbu havoladan videoni olib bo'lmadi. Boshqa havola bilan urinib ko'ring.");
     }
     return;
   }
 
-  // YouTube qidiruv
+  // YouTube nom bo'yicha qidiruv
   const waiting = await ctx.reply("🔍 Qidirilmoqda...");
   try {
     const query = ctx.session.mode === "movie" ? text + " trailer" : text;
@@ -178,33 +194,33 @@ bot.on("message", async (ctx) => {
   }
 });
 
-// ================= BUTTON ACTIONS =================
+// ================= TUGMALAR BOSILGANDA YUKLASH =================
 bot.action(/dl_(m|v)_(.+)/, async (ctx) => {
   await ctx.answerCbQuery().catch(() => {});
   const isAudio = ctx.match[1] === "m";
   const trackKey = ctx.match[2]; 
   const trackData = ctx.session ? ctx.session[trackKey] : null;
 
-  if (!trackData) return ctx.reply("❌ Qidiruv muddati tugagan. Qayta qidirib ko'ring.");
+  if (!trackData) return ctx.reply("❌ Qidiruv muddati tugagan. Qaytadan qidiring.");
 
   const waiting = await ctx.reply("⚡ API orqali yuklanmoqda...");
 
   try {
-    const media = await downloadViaSocialApi(trackData.url, isAudio);
+    const downloadUrl = await getMediaViaRapidApi(trackData.url, isAudio);
 
-    await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "📤 Telegramga yuborilmoqda...");
+    await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "📤 Yuborilmoqda...");
 
     if (isAudio) {
-      await ctx.replyWithAudio(media.url, { title: trackData.title, performer: trackData.author });
+      await ctx.replyWithAudio(downloadUrl, { title: trackData.title, performer: trackData.author });
     } else {
-      await ctx.replyWithVideo(media.url, { caption: `🎬 <b>${trackData.title}</b>\n\n📥 @${ctx.botInfo.username}`, parse_mode: "HTML" });
+      await ctx.replyWithVideo(downloadUrl, { caption: `🎬 <b>${trackData.title}</b>\n\n📥 @${ctx.botInfo.username}`, parse_mode: "HTML" });
     }
 
     await ctx.deleteMessage(waiting.message_id).catch(() => {});
 
   } catch (err) {
-    console.error(err.message);
-    await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "❌ Video/Audio olinmadi. Qayta urinib ko'ring.");
+    console.error("Yuklashda xato:", err.message);
+    await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, "❌ Ushbu faylni yuklab bo'lmadi. Boshqasini tanlab ko'ring.");
   }
 });
 
