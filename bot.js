@@ -13,12 +13,31 @@ const axios = require("axios");
 
 const ADMIN_ID = process.env.ADMIN_ID ? parseInt(process.env.ADMIN_ID) : 8125836834; 
 const MONGO_URI = process.env.MONGO_URI;
-const cookiesPath = path.join(__dirname, "cookies.txt");
 
 if (!MONGO_URI) {
   console.error("❌ XATOLIK: MONGO_URI topilmadi!");
   process.exit(1);
 }
+
+// Kodning o'ziga kiritilgan cookies matni
+const COOKIES_DATA = `# Netscape HTTP Cookie File
+# http://curl.haxx.se/rfc/cookie_spec.html
+# This is a generated file!  Do not edit.
+
+.youtube.com	TRUE	/	FALSE	1820162575	HSID	AZvawbuugra5qblik
+.youtube.com	TRUE	/	TRUE	1820162575	LOGIN_INFO	AFmmF2swRAIgS7p3e0AQh3_kQsA1J73nAT-Ei8TJMvUyIhDkzDL8qO0CIBJcy3ssYM-bGSvQSQWi5NmblOPLdHlJoRQwwMiftusJ:QUQ3MjNmeTFEc3EzUE5mTE9FZ0JFMC1LTV9wMVpOT2ZrNkt0c2NXSUNDVWVQS2ljSU1pT1EtMkNuQUxHQU5FcDVfdTdOVk9INmNOSmdQR3I1YVdPejNRZnQxTkNiY3FtTU5Ud19UZGRweUVJR2x6Qk1JYWdiWmlMWnlTS1FlZUNGcHFuWWFVeWhScVBIMTdkYWxrRUVmTDZKSlgtZ0o4NTlR
+.youtube.com	TRUE	/	FALSE	1790872114	PREF	tz=Asia.Tashkent&f7=100&f4=4010000&f5=30000
+.youtube.com	TRUE	/	FALSE	1822451355	SAPISID	ZFb15K7mLSoKfRRQ/AAnp5LHN4loySs1mU
+.youtube.com	TRUE	/	TRUE	1820162575	SID	g.a000BAnLeNsnX6HgBXrrR2OfVMWr34BpEVO3gFCTumPcdh4sznl7ple97gEoAyKGMdqgRHQJdAACgYKASASARESFQHGX2MiS4Hg__8f4im0YzIj8Z87uRoVAUF8yKq59lKE2fshg3kWdXaicUXL0076
+.youtube.com	TRUE	/	TRUE	1820162575	SIDCC	AKEyXzXBlTZTWL13Pvqv4H9ydwLf0FQdpMBZwU1zYb7zvJmTdFjANDkVcvoyZxwhnLHGJFr47w
+.youtube.com	TRUE	/	TRUE	1819435278	SSID	A4jxnvGotKqKaIFOT
+.youtube.com	TRUE	/	FALSE	1820162575	VISITOR_INFO1_LIVE	h50oMg06SNk
+.youtube.com	TRUE	/	FALSE	1803443364	VISITOR_PRIVACY_METADATA	CgJVWhIEGgAgLg%3D%3D
+.youtube.com	TRUE	/	FALSE	0	YSC	nNOgkL8Wpg4`;
+
+// Vaqtinchalik cookie faylini yaratish
+const cookiesPath = path.join(__dirname, "temp_cookies.txt");
+fs.writeFileSync(cookiesPath, COOKIES_DATA);
 
 // ================= EXPRESS WEB SERVER =================
 const app = express();
@@ -184,7 +203,7 @@ async function searchYouTubeLive(ctx, query) {
   }
 }
 
-// ================= COOKIES ORQALI YUKLASH (YT-DLP) =================
+// ================= YUKLASH (YT-DLP) =================
 async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = "", customPerformer = "") {
   const waiting = await ctx.reply("⚡ Yuklash tayyorlanmoqda...").catch(() => null);
   const fileId = crypto.randomUUID().slice(0, 8);
@@ -201,7 +220,7 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
       audioQuality: '5', 
       ffmpegLocation: ffmpegStatic,
       output: outputPattern,
-      cookies: cookiesPath, // <--- Cookies shu yerga ulandi
+      cookies: cookiesPath,
       noCheckCertificates: true,
       noWarnings: true,
       maxFilesize: '50M', 
@@ -210,7 +229,7 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
       format: 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best', 
       ffmpegLocation: ffmpegStatic,
       output: outputPattern,
-      cookies: cookiesPath, // <--- Cookies shu yerga ulandi
+      cookies: cookiesPath,
       noCheckCertificates: true,
       noWarnings: true,
       maxFilesize: '80M', 
@@ -241,7 +260,7 @@ async function downloadAndSend(ctx, targetUrl, isAudio = false, customTitle = ""
   } catch (err) {
     console.error("Yuklash xatosi:", err.message);
     if (waiting) {
-      await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, `❌ <b>Yuklab bo'lmadi.</b>\n\nCookie fayl muddati tugagan bo'lishi mumkin yoki fayl hajmi katta.`, { parse_mode: "HTML" }).catch(() => {});
+      await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, `❌ <b>Yuklab bo'lmadi.</b>\n\nXatolik yuz berdi.`, { parse_mode: "HTML" }).catch(() => {});
     }
   } finally {
     try {
@@ -321,7 +340,7 @@ bot.action(/dl_(m|v)_(.+)/, async (ctx) => {
 
 client.connect().then(() => {
   bot.launch({ dropPendingUpdates: true })
-    .then(() => console.log("🔥 COOKIE-ENABLED BOT RUNNING!"))
+    .then(() => console.log("🔥 IN-CODE COOKIE BOT RUNNING!"))
     .catch((err) => console.error(err.message));
 }).catch(err => console.error("MongoDB xatosi:", err));
 
