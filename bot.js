@@ -8,8 +8,8 @@ const mongoose = require("mongoose");
 // ================= ADMINLAR SOZLAMASI =================
 const ADMINS = [
   8125836834, // 1-Admin (Siz)
- // 2-Admin ID
-   // 3-Admin ID
+   // 2-Admin ID
+    // 3-Admin ID
 ];
 
 const MONGO_URI = process.env.MONGO_URI;
@@ -146,13 +146,35 @@ bot.command("admin", (ctx) => {
   );
 });
 
+// Admin statistika va foydalanuvchilar ro'yxati (Ism va ID bilan)
 bot.action("admin_stats", async (ctx) => {
   const userId = Number(ctx.from.id);
   if (!ADMINS.map(Number).includes(userId)) return;
   ctx.answerCbQuery();
   
-  const count = await User.countDocuments();
-  ctx.reply(`📊 **Botingizdan foydalanayotganlar soni:** ${count} ta foydalanuvchi.`, { parse_mode: "Markdown" });
+  const users = await User.find().sort({ date: -1 });
+  const count = users.length;
+
+  if (count === 0) {
+    return ctx.reply("📊 Bazada hali foydalanuvchilar yo'q.");
+  }
+
+  let text = `📊 **Botingizdan foydalanayotganlar:** ${count} ta\n\n` +
+             `👤 **Foydalanuvchilar ro'yxati:**\n`;
+
+  users.forEach((u, index) => {
+    const safeName = (u.firstName || "Ismsiz").replace(/[_*`\[\]]/g, ""); 
+    text += `${index + 1}. **${safeName}** — \`${u.telegramId}\`\n`;
+  });
+
+  if (text.length > 4000) {
+    const chunks = text.match(/[\s\S]{1,4000}/g);
+    for (const chunk of chunks) {
+      await ctx.reply(chunk, { parse_mode: "Markdown" });
+    }
+  } else {
+    ctx.reply(text, { parse_mode: "Markdown" });
+  }
 });
 
 bot.action("admin_broadcast", (ctx) => {
@@ -319,4 +341,4 @@ bot.action(/select_(\d+)/, async (ctx) => {
   }
 });
 
-bot.launch({ dropPendingUpdates: true }).then(() => console.log("🔥 BOT FULL FUNCTIONAL ISHGA TUSHDI!"));
+bot.launch({ dropPendingUpdates: true }).then(() => console.log("🔥 BOT ISHGA TUSHDI!"));
